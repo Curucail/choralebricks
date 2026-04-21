@@ -34,11 +34,11 @@ Transactions of the International Society for Music Information Retrieval, 2025.
 Clone repository, then:
 
 ```bash
-    pip install poetry
-    poetry install
+pip install uv
+uv sync
 ```
 
-Dowload the corresponding audio files from Zenodo:
+Download the corresponding audio files from Zenodo:
 
 [https://zenodo.org/records/15081741](https://zenodo.org/records/15463260)
 
@@ -52,7 +52,13 @@ cbdb = SongDB(root_dir="/path/to/ChoraleBricks")
 
 where `root_dir` is the path to the ChoraleDB dataset folder.
 The `root_dir` can also be overridden using a system environment variable.
-Just ```export CHORALEDB_PATH=/path/to/ChoraleBricks``` inside your bash environment.
+For example:
+
+```bash
+# bash / zsh
+export CHORALEDB_PATH=/path/to/ChoraleBricks
+```
+
 In that case no arguments would need to passed to `SongDB()`.
 
 Further example scripts for different standard scenarios can be found in the `examples/` folder.
@@ -62,7 +68,7 @@ Further example scripts for different standard scenarios can be found in the `ex
 As a starting point, we provide example code in the `examples/` folder.
 These require slightly more dependencies. Use:
 ```bash
-    poetry install --extras examples
+uv sync --extra examples
 ```
 for setup.
 
