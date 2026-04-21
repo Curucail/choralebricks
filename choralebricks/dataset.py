@@ -290,7 +290,7 @@ class EnsembleRandom(Ensemble):
         # for each voice, draw a track
         for cur_voice in set(voices):
             candidate_idcs: np.array = np.where(np.asarray(voices) == cur_voice)[0]
-            choice_id: int = int(np.random.choice(candidate_idcs, size=1))
+            choice_id: int = int(np.random.choice(candidate_idcs))
             track_choice_ids.append(choice_id)
 
         # collate tracks
