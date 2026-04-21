@@ -404,9 +404,9 @@ class MixerSimple(Mixer):
             audio, _ = sf.read(cur_track.path_audio)
             track_audio.append(audio)
 
-        # TODO: tracks could differ in samples, we assume that the start position is correct
-        # quick fix: Take shortest number of samples from all tracks
-        track_audio = np.asarray(track_audio)
+        # Tracks could differ in samples, we assume that the start position is correct
+        min_samples = min(len(audio) for audio in track_audio)
+        track_audio = np.asarray([audio[:min_samples] for audio in track_audio])
         track_audio = (10 ** (self.gains / 20))[:, np.newaxis] * track_audio
         track_audio = track_audio / track_audio.shape[0]  # all equal amplitude from original file
 
