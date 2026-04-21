@@ -147,8 +147,7 @@ def mux_audio_video(cur_song_id, cur_ensemble):
     # cleanup
     path_audio.unlink()
 
-
-if __name__ == "__main__":
+def main():
     ENSEMBLES = {
         "Anonymous_AusMeinesHerzensGrunde": {1: "tp", 2: "fh", 3: "bar", 4: "tba"},
         "Bach_IchStehAnDeinerKrippe": {1: "fl", 2: "cl", 3: "bar", 4: "tba"},
@@ -165,3 +164,6 @@ if __name__ == "__main__":
     for cur_song_id, cur_ensemble in ENSEMBLES.items():
         print(f"Processing {cur_song_id} with ensemble {cur_ensemble}")
         mux_audio_video(cur_song_id, cur_ensemble)
+
+if __name__ == "__main__":
+    main()
