@@ -21,6 +21,7 @@ from choralebricks.utils import voice_to_name, get_voice_from_int, read_notes
 from choralebricks.generators import tracks
 
 logger = logging.getLogger(__name__)
+SEPARATOR = "-" * 40
 
 
 def collect_data(cbdb):
@@ -68,41 +69,41 @@ def collect_data(cbdb):
 
 
 def print_tables(df_songs, df_tracks, df_performers):
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print(f"#Performers: {df_performers.shape[0]}")
     print(f"Min. Age: {(2025 - df_performers["birthyear"]).min()}")
     print(f"Max. Age: {(2025 - df_performers["birthyear"]).max()}")
     print(f"Avg. Age: {(2025 - df_performers["birthyear"]).mean()}")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print(f"#Songs: {df_tracks["song_id"].nunique()}")
     print(f"#Tracks: {df_tracks.shape[0]}")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print("#Tracks per Song")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print(df_tracks.groupby("song_id").size())
     print(f"Avg. Tracks per Song: {df_tracks.groupby("song_id").size().mean()}")
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print("#Tracks per Voice")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print(df_tracks.groupby("voice").size())
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print("#Tracks per Instrument Type")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print(df_tracks.groupby("instrument_type").agg(
         size=("audio_dur", "size"),
         sum=("audio_dur", "sum"),
         )
     )
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print("#Tracks per Instrument")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     df_songs_grouped = df_tracks.groupby("instrument").agg(
         size=("audio_dur", "size"),
         sum=("audio_dur", "sum"),
@@ -119,18 +120,18 @@ def print_tables(df_songs, df_tracks, df_performers):
 
     print(df_songs_grouped)
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print("#Tracks per Voice and Instrument")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print(df_tracks.groupby(["voice", "instrument"]).agg(
         size=("audio_dur", "size"),
         sum=("audio_dur", "sum"),
         )
     )
 
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     print("#Ensembles per Song")
-    print(u"\u2500" * 40)
+    print(SEPARATOR)
     df_songs["perm_dur"] = df_songs["n_permutations"] * df_songs["min_dur"]
     df_songs["perm_dur_str"] = pd.to_datetime(df_songs["perm_dur"], unit='s').dt.strftime('%H:%M:%S')
     print(df_songs.sort_values("song_id"))

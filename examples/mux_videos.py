@@ -8,6 +8,7 @@ Date: Apr 1st, 2025
 """
 
 from pathlib import Path
+import os
 import pandas as pd
 import numpy as np
 import soundfile as sf
@@ -18,8 +19,10 @@ from choralebricks.constants import Instrument
 ###################
 # You need to adjust these paths!
 ###################
-PATH_VIDEOS = Path("/Users/stefan/dev/chorale_bricks/data/03_videos")
-PATH_MULTITRACK = Path("/Users/stefan/dev/chorale_bricks/data/02_multitrack")
+PATH_DATASET = Path(os.environ["CHORALEDB_PATH"])
+PATH_DATASET_ROOT = PATH_DATASET.parent
+PATH_VIDEOS = PATH_DATASET_ROOT / "02_ConductingVideos"
+PATH_VIDEO_OFFSETS = PATH_DATASET / "metadata_video_offsets.csv"
 PATH_TMP = Path("output_videos")
 PATH_TMP.mkdir(parents=True, exist_ok=True)
 
@@ -49,6 +52,11 @@ def get_video_duration_ffmpeg(video_path):
         stderr=subprocess.PIPE,
         text=True
     )
+
+    if result.returncode != 0:
+        raise subprocess.SubprocessError(result.stderr.strip())
+    if not result.stdout.strip():
+        raise ValueError(f"ffprobe returned no duration for {video_path}")
 
     return float(result.stdout.strip())
 
@@ -115,7 +123,7 @@ def mux_audio_video(cur_song_id, cur_ensemble):
     print(f"Audio duration: {dur_audio} seconds")
 
     # prepare the audio file
-    df_offsets = pd.read_csv(PATH_MULTITRACK / "video_offsets.csv", sep=";")
+    df_offsets = pd.read_csv(PATH_VIDEO_OFFSETS, sep=";")
     cur_offset = df_offsets[df_offsets["song_id"] == cur_song_id]["offset"].values[0]
     print(f"Offset: {cur_offset} seconds")
 
@@ -147,8 +155,7 @@ def mux_audio_video(cur_song_id, cur_ensemble):
     # cleanup
     path_audio.unlink()
 
-
-if __name__ == "__main__":
+def main():
     ENSEMBLES = {
         "Anonymous_AusMeinesHerzensGrunde": {1: "tp", 2: "fh", 3: "bar", 4: "tba"},
         "Bach_IchStehAnDeinerKrippe": {1: "fl", 2: "cl", 3: "bar", 4: "tba"},
@@ -165,3 +172,6 @@ if __name__ == "__main__":
     for cur_song_id, cur_ensemble in ENSEMBLES.items():
         print(f"Processing {cur_song_id} with ensemble {cur_ensemble}")
         mux_audio_video(cur_song_id, cur_ensemble)
+
+if __name__ == "__main__":
+    main()
