@@ -63,18 +63,19 @@ def collect_data(cbdb):
 
     df_songs = pd.DataFrame(df_songs)
     df_tracks = pd.DataFrame(df_tracks)
-    df_tracks["date"] = pd.to_datetime(df_tracks["date"], format="%Y-%m-%d")
+    df_tracks["date"] = pd.to_datetime(df_tracks["date"], format="%Y-%m-%d", errors="coerce")
 
     return df_songs, df_tracks
 
 
-def print_tables(df_songs, df_tracks, df_performers):
-    print(SEPARATOR)
-    print(f"#Performers: {df_performers.shape[0]}")
-    print(f"Min. Age: {(2025 - df_performers["birthyear"]).min()}")
-    print(f"Max. Age: {(2025 - df_performers["birthyear"]).max()}")
-    print(f"Avg. Age: {(2025 - df_performers["birthyear"]).mean()}")
-    print(SEPARATOR)
+def print_tables(df_songs, df_tracks, df_performers=None):
+    if df_performers is not None:
+        print(SEPARATOR)
+        print(f"#Performers: {df_performers.shape[0]}")
+        print(f"Min. Age: {(2025 - df_performers["birthyear"]).min()}")
+        print(f"Max. Age: {(2025 - df_performers["birthyear"]).max()}")
+        print(f"Avg. Age: {(2025 - df_performers["birthyear"]).mean()}")
+        print(SEPARATOR)
 
     print(SEPARATOR)
     print(f"#Songs: {df_tracks["song_id"].nunique()}")
@@ -273,6 +274,10 @@ def figure_pitch_hist_SATB():
 
 
 def figure_timeline_recordings(df_tracks):
+    if df_tracks["date"].dropna().empty:
+        print("Skipping recording timeline figure: no recording dates available.")
+        return
+
     # Figure: Timeline of Number of Records per Day
     df_timeline = df_tracks[["date", "instrument"]]
     df_timeline.set_index("date", inplace=True)
@@ -319,7 +324,8 @@ def figure_timeline_recordings(df_tracks):
 def main():
     cbdb = SongDB()
     df_songs, df_tracks = collect_data(cbdb)
-    df_performers = pd.read_csv(Path(os.environ["CHORALEDB_PATH"]) / "metadata_performers.csv", sep=";")
+    performers_path = Path(os.environ["CHORALEDB_PATH"]) / "metadata_performers.csv"
+    df_performers = pd.read_csv(performers_path, sep=";") if performers_path.is_file() else None
 
     print_tables(df_songs=df_songs, df_tracks=df_tracks, df_performers=df_performers)
     figure_tracks_per_voice_instrument(df_tracks)
