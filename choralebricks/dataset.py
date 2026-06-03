@@ -29,6 +29,8 @@ class Track(BaseModel):
     path_sheet_music_csv: Optional[Union[str, Path]] = None
     path_sheet_music_midi: Optional[Union[str, Path]] = None
     path_sheet_music_mxml: Optional[Union[str, Path]] = None
+    path_sheet_music_mei: Optional[Union[str, Path]] = None
+    path_sheet_music_pdf: Optional[Union[str, Path]] = None
     path_chords: Optional[Union[str, Path]] = None
     num_channels: int = 0
     min_samples: int = 0
@@ -53,6 +55,19 @@ class Track(BaseModel):
 
     def __repr__(self):
         return f"(V: {self.voice}, I: {self.instrument})"
+
+
+def optional_metadata_value(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+    return value
+
+
+def first_existing_path(*paths: Path) -> Optional[Path]:
+    for path in paths:
+        if path.is_file():
+            return path
+    return None
 
 
 class Song:
@@ -165,10 +180,24 @@ class Song:
 
             cur_path_f0 = self.song_dir / "annotations" / cur_meta_track["path_f0"]
             cur_path_notes = self.song_dir / "annotations" / cur_meta_track["path_notes"]
-            cur_path_sheet_music_csv = self.song_dir / f"{self.id}.csv"
-            cur_path_sheet_music_midi = self.song_dir / f"{self.id}.mid"
-            cur_path_sheet_music_mxml = self.song_dir / f"{self.id}.musicxml"
-            cur_path_chords = self.song_dir / "annotations" / f"chords.csv"
+            cur_path_sheet_music_csv = first_existing_path(
+                self.song_dir / f"{self.id}.csv",
+                self.song_dir / f"{self.id}_01-preproc.csv",
+            )
+            cur_path_sheet_music_midi = first_existing_path(
+                self.song_dir / f"{self.id}.mid",
+                self.song_dir / f"{self.id}_01-preproc.mid",
+            )
+            cur_path_sheet_music_mxml = first_existing_path(self.song_dir / f"{self.id}.musicxml")
+            cur_path_sheet_music_mei = first_existing_path(
+                self.song_dir / f"{self.id}.mei",
+                self.song_dir / f"{self.id}_01-preproc.mei",
+            )
+            cur_path_sheet_music_pdf = first_existing_path(
+                self.song_dir / f"{self.id}.pdf",
+                self.song_dir / f"{self.id}_01-preproc.pdf",
+            )
+            cur_path_chords = first_existing_path(self.song_dir / "annotations" / f"chords.csv")
 
             if not cur_path_f0.is_file():
                 cur_path_f0 = None
@@ -184,16 +213,18 @@ class Song:
                 path_sheet_music_csv=cur_path_sheet_music_csv,
                 path_sheet_music_midi=cur_path_sheet_music_midi,
                 path_sheet_music_mxml=cur_path_sheet_music_mxml,
+                path_sheet_music_mei=cur_path_sheet_music_mei,
+                path_sheet_music_pdf=cur_path_sheet_music_pdf,
                 path_chords=cur_path_chords,
                 num_channels=file_info.channels,
                 min_samples=file_info.frames,
                 sample_rate=file_info.samplerate,
                 voice=int(cur_meta_track["voice"]),
                 instrument=Instrument(cur_meta_track["instrument"]),
-                date=cur_meta_track["date"],
-                performer=cur_meta_track["performer"],
-                microphone=cur_meta_track["microphone"],
-                room=cur_meta_track["room"],
+                date=optional_metadata_value(cur_meta_track["date"]),
+                performer=optional_metadata_value(cur_meta_track["performer"]),
+                microphone=optional_metadata_value(cur_meta_track["microphone"]),
+                room=optional_metadata_value(cur_meta_track["room"]),
             )
             self.tracks.append(cur_track)
 

@@ -77,17 +77,16 @@ def read_notes(
     A4: float=440.0,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    expected_columns = ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]
+    required_columns = ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if path_csv.exists():
         df = pd.read_csv(path_csv, sep=",")
-        try:
-            validate_schema(df, expected_columns)
-        except SchemaValidationError as e:
-            print(f"Error: {e}")
+        missing_columns = [column for column in required_columns if column not in df.columns]
+        if missing_columns:
+            print(f"Error: Missing required notes columns: {missing_columns}")
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 

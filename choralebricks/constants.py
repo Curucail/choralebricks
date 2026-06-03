@@ -25,6 +25,8 @@ class Instrument(Enum):
     SAX_ALTO = "as"
     SAX_TENOR = "ts"
     SAX_BARITONE = "bs"
+    SAX_SOPRANO = "ss"
+    BASSOON = "bsn"
     TRUMPET = "tp"
     FLUGELHORN = "fh"
     BARITONE = "bar"
@@ -48,7 +50,9 @@ INSTRUMENT_STRINGS = {
     Instrument.CLARINET_BASS: "Bass Clarinet",
     Instrument.SAX_ALTO: "Alto Saxophone",
     Instrument.SAX_TENOR: "Tenor Saxophone",
-    Instrument.SAX_BARITONE: "Baritone Saxophone"
+    Instrument.SAX_BARITONE: "Baritone Saxophone",
+    Instrument.SAX_SOPRANO: "Soprano Saxophone",
+    Instrument.BASSOON: "Bassoon"
 }
 
 
@@ -80,7 +84,9 @@ INSTRUMENTS_WOODWIND = [
     Instrument.CLARINET_BASS,
     Instrument.SAX_ALTO,
     Instrument.SAX_TENOR,
-    Instrument.SAX_BARITONE
+    Instrument.SAX_BARITONE,
+    Instrument.SAX_SOPRANO,
+    Instrument.BASSOON
 ]
 
 VOICE_COLORS = {
