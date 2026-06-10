@@ -1,7 +1,9 @@
 import copy
 import logging
 import os
+import tomllib
 from abc import ABC, abstractmethod
+from importlib.metadata import version as distribution_version
 from itertools import product
 from pathlib import Path
 from typing import Any, Iterator, Optional, Union
@@ -15,6 +17,34 @@ from .constants import (INSTRUMENTS_BRASS, INSTRUMENTS_WOODWIND, Instrument,
                         InstrumentType)
 
 logger = logging.getLogger(__name__)
+
+
+def package_version() -> str:
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if pyproject_path.is_file():
+        with pyproject_path.open("rb") as handle:
+            return str(tomllib.load(handle)["project"]["version"])
+    return distribution_version("choralebricks")
+
+
+PACKAGE_VERSION = package_version()
+
+
+def validate_dataset_version(root_dir: Path) -> str:
+    version_path = root_dir / "VERSION"
+    if not version_path.is_file():
+        raise FileNotFoundError(
+            f"Dataset VERSION file not found: {version_path}. "
+            f"ChoraleBricks {PACKAGE_VERSION} requires a matching dataset release."
+        )
+
+    dataset_version = version_path.read_text(encoding="utf-8").strip()
+    if dataset_version != PACKAGE_VERSION:
+        raise RuntimeError(
+            f"Dataset version {dataset_version!r} does not match "
+            f"ChoraleBricks package version {PACKAGE_VERSION!r}."
+        )
+    return dataset_version
 
 
 class Track(BaseModel):
@@ -246,6 +276,7 @@ class SongDB:
         else:
             self.root_dir = Path(root_dir).expanduser()
 
+        self.version = validate_dataset_version(self.root_dir)
         self.songs: list[Song] = []
         self.__collect_songs()
         self._current_index = 0
