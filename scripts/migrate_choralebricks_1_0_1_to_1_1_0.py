@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
+import math
 import shutil
 import tomllib
 import xml.etree.ElementTree as ET
@@ -19,6 +20,7 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 RELEASE_DATE = "10.06.2026"
 MEASURE_STEP = Decimal("0.001")
 F0_MEDIAN_STEP = Decimal("0.001")
+A4_HZ = 442.0
 
 ALIGNMENT_1_0_FIELDS = [
     "t_start",
@@ -207,6 +209,11 @@ def format_f0_median(values: list[Decimal]) -> str:
     return f"{median.quantize(F0_MEDIAN_STEP, rounding=ROUND_HALF_UP):.3f}"
 
 
+def pitch_audio_from_f0_median(f0_median: str) -> str:
+    midi = Decimal(12) * Decimal(math.log2(float(f0_median) / A4_HZ)) + Decimal(69)
+    return str(int(midi.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+
+
 def recompute_note_f0_medians(
     notes_path: Path,
     alignment_path: Path,
@@ -244,8 +251,11 @@ def recompute_note_f0_medians(
                 f"{notes_path}:{row_number}: note interval contains no raw F0."
             )
         median = format_f0_median(values[first:last])
+        pitch_audio = pitch_audio_from_f0_median(median)
         note["f0_median"] = median
         aligned["f0_median"] = median
+        note["pitch_audio"] = pitch_audio
+        aligned["pitch_audio"] = pitch_audio
 
     write_dict_rows(notes_path, NOTES_1_1_FIELDS, notes)
     write_dict_rows(alignment_path, ALIGNMENT_1_1_FIELDS, alignment)
@@ -401,7 +411,7 @@ def migrate_annotation_pair(notes_path: Path, alignment_path: Path) -> int:
             {
                 "t_start": note["TIME"],
                 "t_dur": note["DURATION"],
-                "pitch_audio": alignment["pitch_audio"],
+                "pitch_audio": "",
                 "f0_median": "",
                 "level": note["LEVEL"],
                 "label": note.get("LABEL") or "",
@@ -411,7 +421,7 @@ def migrate_annotation_pair(notes_path: Path, alignment_path: Path) -> int:
             {
                 "t_start": alignment["t_start"],
                 "t_dur": alignment["t_dur"],
-                "pitch_audio": alignment["pitch_audio"],
+                "pitch_audio": "",
                 "f0_median": "",
                 "start_meas": alignment["start_meas"],
                 "end_meas": alignment["end_meas"],
@@ -494,6 +504,8 @@ def update_changelog(path: Path, version: str) -> None:
         "better consistency and correctness\n"
         "- Recomputed note and alignment f0_median from raw F0 export in each "
         "closed note interval, rounded to three decimals.\n"
+        "- Recomputed note and alignment pitch_audio from f0_median as "
+        "round(12*log2(f0_median / 442) + 69) (A4 = 442 Hz).\n"
         "- Removed stale file "
         "Gesius_DuFriedensfuerstHerrJesuChrist/annotations/03_eh_notes.csv\n"
         "- Restricted non-zero (voiced) F0 values to be only allowed during note events\n"
@@ -531,9 +543,9 @@ def update_changelog(path: Path, version: str) -> None:
         "represents the median value, not the mean. `f0_median` is recomputed "
         "from raw F0 csv inside the closed note interval.\n"
         "- *_notes.csv: `TIME` -> `t_start`, `DURATION` -> `t_dur`, `LEVEL` -> "
-        "`level`, and `LABEL` -> `label`. Added `pitch_audio`. `f0_median` "
-        "replaces `VALUE` and is recomputed from raw F0 csv inside the closed "
-        "note interval.\n"
+        "`level`, and `LABEL` -> `label`. Added `pitch_audio`, derived from "
+        "`f0_median` (A4 = 442 Hz). `f0_median` replaces `VALUE` and is "
+        "recomputed from raw F0 csv inside the closed note interval.\n"
         "- Raw F0: `TIME` -> `t`, `VALUE` -> `f0`, and `LABEL` -> `label`.\n"
         "- Score: `pitch` -> `pitch_sheet_music`.\n\n"
     )

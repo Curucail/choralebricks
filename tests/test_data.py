@@ -1,5 +1,6 @@
 import bisect
 import csv
+import math
 import os
 import re
 from decimal import ROUND_HALF_UP, Decimal
@@ -71,6 +72,7 @@ NUMERIC_ALIGNMENT_SCORE_FIELDS = [
 ]
 MEASURE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
 F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
+A4_HZ = 442.0
 PITCH_NAME_PATTERN = re.compile(r"^([A-G])([#-]*)(-?\d+)$")
 PITCH_CLASSES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 ACCIDENTALS = {"": 0, "#": 1, "##": 2, "-": -1, "--": -2}
@@ -133,6 +135,11 @@ def format_f0_median(values):
         else (ordered[middle - 1] + ordered[middle]) / Decimal(2)
     )
     return f"{median.quantize(Decimal('0.001'), rounding=ROUND_HALF_UP):.3f}"
+
+
+def pitch_audio_from_f0_median(f0_median):
+    midi = Decimal(12) * Decimal(math.log2(float(f0_median) / A4_HZ)) + Decimal(69)
+    return int(midi.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def pitch_name_to_midi(pitch_name):
@@ -393,6 +400,24 @@ def test_f0_annotations_and_note_medians(tracks):
             first = bisect.bisect_left(raw_times, start)
             last = bisect.bisect_right(raw_times, end)
             assert median == format_f0_median(raw_values[first:last])
+        note_rows += len(notes)
+    assert note_rows == 9097
+
+
+def test_pitch_audio_derived_from_f0_median(tracks):
+    """pitch_audio is round(12*log2(f0_median / 442) + 69), A4 = 442 Hz."""
+    note_rows = 0
+    for track in tracks:
+        _, notes = read_csv_rows(track.path_notes)
+        _, alignment = read_csv_rows(alignment_path(track))
+        for note in notes:
+            assert int(note["pitch_audio"]) == pitch_audio_from_f0_median(
+                note["f0_median"]
+            )
+        for aligned in alignment:
+            assert int(aligned["pitch_audio"]) == pitch_audio_from_f0_median(
+                aligned["f0_median"]
+            )
         note_rows += len(notes)
     assert note_rows == 9097
 
