@@ -54,13 +54,19 @@ def test_choralewind_score_paths_and_optional_chords(tracks):
     assert track.microphone is None
 
 
-def test_choralewind_notes_accept_midi_pitch(tracks):
-    """Test ChoraleWind notes CSVs can include MIDI_PITCH."""
+def test_choralewind_notes_schema(tracks):
+    """Test ChoraleWind notes expose audio pitch and median F0."""
     raw_notes = read_notes(tracks[0].path_notes, rename_cols=False)
     notes = read_notes(tracks[0].path_notes)
-    assert list(raw_notes.columns) == ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL", "MIDI_PITCH"]
-    assert "MIDI_PITCH" in notes.columns
-    assert "pitch" in notes.columns
+    assert list(raw_notes.columns) == [
+        "TIME",
+        "PITCH",
+        "DURATION",
+        "LEVEL",
+        "F0_MEDIAN",
+        "LABEL",
+    ]
+    assert list(notes.columns) == ["t_start", "pitch", "t_dur", "f0_median"]
 
 
 def test_choralewind_extra_instruments_are_woodwinds():

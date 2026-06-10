@@ -111,7 +111,7 @@ def test_csv_headers(track):
     f0_head = read_f0_sv(path_sv_f0, rename_cols=False).columns if track.path_f0 else []
     notes_head = read_notes(track.path_notes, rename_cols=False).columns if track.path_notes else []
     assert list(f0_head) == ["TIME", "VALUE", "LABEL"]
-    assert list(notes_head) == ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]
+    assert list(notes_head) == ["TIME", "PITCH", "DURATION", "LEVEL", "F0_MEDIAN", "LABEL"]
 
 
 @pytest.mark.parametrize("track", TRACKS, ids=tr_ids)

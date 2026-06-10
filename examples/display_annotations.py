@@ -52,7 +52,7 @@ def main():
     # Overlay data (second dataframe)
     for _, row in cur_notes.iterrows():
         plt.gca().add_patch(plt.Rectangle(
-            (row["t_start"], row["f0_mean"] - 5),
+            (row["t_start"], row["f0_median"] - 5),
             row["t_dur"],
             10,
             color="orange",

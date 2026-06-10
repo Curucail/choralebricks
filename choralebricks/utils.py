@@ -74,19 +74,19 @@ def read_f0(
 
 def read_notes(
     path_csv: Path,
-    A4: float=440.0,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    required_columns = ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]
+    expected_columns = ["TIME", "PITCH", "DURATION", "LEVEL", "F0_MEDIAN", "LABEL"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if path_csv.exists():
         df = pd.read_csv(path_csv, sep=",")
-        missing_columns = [column for column in required_columns if column not in df.columns]
-        if missing_columns:
-            print(f"Error: Missing required notes columns: {missing_columns}")
+        try:
+            validate_schema(df, expected_columns)
+        except SchemaValidationError as e:
+            print(f"Error: {e}")
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
@@ -95,12 +95,10 @@ def read_notes(
         df = df.drop(columns=["LEVEL", "LABEL"])
         df = df.rename(columns={
             "TIME": "t_start",
-            "VALUE": "f0_mean",
-            "DURATION": "t_dur"
+            "PITCH": "pitch",
+            "DURATION": "t_dur",
+            "F0_MEDIAN": "f0_median",
         })
-
-        df["pitch"] = (12 * (np.log2(df["f0_mean"].values) - np.log2(A4)) + 69)
-        df["pitch"] = df["pitch"].round().astype(int)
 
     return df
 

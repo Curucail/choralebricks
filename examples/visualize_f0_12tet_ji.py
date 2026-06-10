@@ -49,7 +49,7 @@ def main():
     f0_a = f0_a[idx,:]
 
     # load note annotations
-    notes = np.loadtxt(track.path_notes, skiprows=1, usecols=(0, 1, 2), delimiter=",")
+    notes = pd.read_csv(track.path_notes)
 
     # load audio
     x, _ = librosa.load(track.path_audio, sr=fs)
@@ -85,9 +85,16 @@ def main():
 
     i = 0
     for _, row in score.iterrows():
-        assert row.pitch == np.round(choralebricks.utils.hz2midi(notes[i,1], f_ref=442)).astype(int)
+        note = notes.iloc[i]
+        assert row.pitch == note.PITCH
+        assert note.PITCH == np.round(
+            choralebricks.utils.hz2midi(note.F0_MEDIAN, f_ref=442)
+        ).astype(int)
         chord = chord_seq.get_chord_at(row.start_meas)
-        mask = ((t_f0 >= notes[i,0]) & (t_f0 <= (notes[i,0] + notes[i,2])))
+        mask = (
+            (t_f0 >= note.TIME)
+            & (t_f0 <= (note.TIME + note.DURATION))
+        )
         # extend mask a bit for smoother synthesis
         mask = maximum_filter1d(mask, 11, mode='constant', cval=0)
 

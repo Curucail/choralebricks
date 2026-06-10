@@ -82,7 +82,7 @@ def main():
     for _, row in cur_notes.iterrows():
         ax.add_patch(
             plt.Rectangle(
-                (row["t_start"], row["f0_mean"] - 5),
+                (row["t_start"], row["f0_median"] - 5),
                 row["t_dur"],
                 10,
                 color=color,
