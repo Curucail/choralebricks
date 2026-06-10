@@ -45,23 +45,30 @@ def main():
             cur_notes["start_meas"] = cur_sheet_music["start_meas"].values
             cur_notes["end_meas"] = cur_sheet_music["end_meas"].values
             cur_notes["duration_quarterLength"] = cur_sheet_music["duration_quarterLength"].values
-            cur_notes["pitch_sheet_music"] = cur_sheet_music["pitch"].values
+            cur_notes["pitch_sheet_music"] = cur_sheet_music["pitch_sheet_music"].values
             cur_notes["pitchName"] = cur_sheet_music["pitchName"].values
             cur_notes["timeSig"] = cur_sheet_music["timeSig"].values
             cur_notes["part"] = cur_sheet_music["part"].values
 
             # Check if pitches are the same for every note
-            if not any(cur_notes["pitch"].values == cur_sheet_music["pitch"].values):
+            if not any(
+                cur_notes["pitch_audio"].values
+                == cur_sheet_music["pitch_sheet_music"].values
+            ):
                 logging.info(f"Found pitch problem in {cur_track.song_id} -> {cur_track.path_audio.name}")
                 logging.info(cur_notes)
 
-                if any(abs(cur_notes["pitch"].values - cur_sheet_music["pitch"].values) == 12):
+                if any(
+                    abs(
+                        cur_notes["pitch_audio"].values
+                        - cur_sheet_music["pitch_sheet_music"].values
+                    )
+                    == 12
+                ):
                     logging.info("Only octave deltas.")
                 else:
                     logging.info(f"Skipping {cur_track.path_audio.stem}...")
                     continue
-
-            cur_notes = cur_notes.rename(columns={"pitch": "pitch_audio"})
 
             song_folder = out_folder / cur_track.song_id / "alignments"
             song_folder.mkdir(parents=True, exist_ok=True)

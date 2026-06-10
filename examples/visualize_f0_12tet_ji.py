@@ -42,14 +42,14 @@ def main():
     score = score_all[score_all.part == voice2str[track.voice]]
 
     # load F0 annotations
-    f0_a = np.loadtxt(track.path_f0, skiprows=1, usecols=(0, 1), delimiter=",")
+    f0_a = np.loadtxt(track.path_f0, skiprows=1, usecols=(0, 1), delimiter=";")
     # make sure that f0 annotations are unique for each time frame
     # TODO: can be removed when annotations are correct
     _, idx = np.unique(f0_a[:,0], return_index=True)
     f0_a = f0_a[idx,:]
 
     # load note annotations
-    notes = pd.read_csv(track.path_notes)
+    notes = pd.read_csv(track.path_notes, sep=";")
 
     # load audio
     x, _ = librosa.load(track.path_audio, sr=fs)
@@ -86,20 +86,23 @@ def main():
     i = 0
     for _, row in score.iterrows():
         note = notes.iloc[i]
-        assert row.pitch == note.PITCH
-        assert note.PITCH == np.round(
-            choralebricks.utils.hz2midi(note.F0_MEDIAN, f_ref=442)
+        assert row.pitch_sheet_music == note.pitch_audio
+        assert note.pitch_audio == np.round(
+            choralebricks.utils.hz2midi(note.f0_median, f_ref=442)
         ).astype(int)
         chord = chord_seq.get_chord_at(row.start_meas)
         mask = (
-            (t_f0 >= note.TIME)
-            & (t_f0 <= (note.TIME + note.DURATION))
+            (t_f0 >= note.t_start)
+            & (t_f0 <= (note.t_start + note.t_dur))
         )
         # extend mask a bit for smoother synthesis
         mask = maximum_filter1d(mask, 11, mode='constant', cval=0)
 
-        f0_et[mask] = choralebricks.utils.midi2hz(row.pitch, f_ref=442)
-        f0_ji[mask] = choralebricks.utils.midi2hz(row.pitch + ji_offset[chord.get_interval(row.pitch)], f_ref=442)
+        f0_et[mask] = choralebricks.utils.midi2hz(row.pitch_sheet_music, f_ref=442)
+        f0_ji[mask] = choralebricks.utils.midi2hz(
+            row.pitch_sheet_music + ji_offset[chord.get_interval(row.pitch_sheet_music)],
+            f_ref=442,
+        )
         i += 1
 
 

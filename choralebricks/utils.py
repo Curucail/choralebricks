@@ -18,7 +18,7 @@ def validate_schema(
         expected_columns
     ):
     """Validate if the DataFrame schema matches the expected columns."""
-    if set(df.columns) != set(expected_columns):
+    if list(df.columns) != list(expected_columns):
         raise SchemaValidationError(
             f"Schema mismatch. Expected columns: {expected_columns}, but got: {list(df.columns)}"
         )
@@ -28,27 +28,19 @@ def read_f0_sv(
     path_csv: Path,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    expected_columns = ["TIME", "VALUE", "LABEL"]
+    expected_columns = ["t", "f0", "label"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if path_csv.exists():
-        df = pd.read_csv(path_csv, sep=",")
-        try:
-            validate_schema(df, expected_columns)
-        except SchemaValidationError as e:
-            print(f"Error: {e}")
+        df = pd.read_csv(path_csv, sep=";")
+        validate_schema(df, expected_columns)
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
-    # cosmetics
     if rename_cols:
-        df = df.drop(columns=["LABEL"])
-        df = df.rename(columns={
-            "TIME": "t",
-            "VALUE": "f0"
-        })
+        df = df.drop(columns=["label"])
     return df
 
 
@@ -61,11 +53,8 @@ def read_f0(
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if path_csv.exists():
-        df = pd.read_csv(path_csv, sep=",")
-        try:
-            validate_schema(df, expected_columns)
-        except SchemaValidationError as e:
-            print(f"Error: {e}")
+        df = pd.read_csv(path_csv, sep=";")
+        validate_schema(df, expected_columns)
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
@@ -76,29 +65,19 @@ def read_notes(
     path_csv: Path,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    expected_columns = ["TIME", "PITCH", "DURATION", "LEVEL", "F0_MEDIAN", "LABEL"]
+    expected_columns = ["t_start", "t_dur", "pitch_audio", "f0_median", "level", "label"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if path_csv.exists():
-        df = pd.read_csv(path_csv, sep=",")
-        try:
-            validate_schema(df, expected_columns)
-        except SchemaValidationError as e:
-            print(f"Error: {e}")
+        df = pd.read_csv(path_csv, sep=";")
+        validate_schema(df, expected_columns)
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
-    # cosmetics
     if rename_cols:
-        df = df.drop(columns=["LEVEL", "LABEL"])
-        df = df.rename(columns={
-            "TIME": "t_start",
-            "PITCH": "pitch",
-            "DURATION": "t_dur",
-            "F0_MEDIAN": "f0_median",
-        })
+        df = df.drop(columns=["level", "label"])
 
     return df
 
@@ -111,7 +90,7 @@ def read_sheet_music_csv(
         "start_meas",
         "end_meas",
         "duration_quarterLength",
-        "pitch",
+        "pitch_sheet_music",
         "pitchName",
         "timeSig",
         "articulation",
@@ -132,15 +111,12 @@ def read_sheet_music_csv(
 
     if path_csv.exists():
         df = pd.read_csv(path_csv, sep=";")
-        try:
-            validate_schema(df, expected_columns)
-        except SchemaValidationError as e:
-            print(f"Error: {e}")
+        validate_schema(df, expected_columns)
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     df["dur_meas"] = df["end_meas"] - df["start_meas"]
-    df["pitch_center_freq"] = A4 * 2**((df["pitch"] - 69) / 12)
+    df["pitch_center_freq"] = A4 * 2**((df["pitch_sheet_music"] - 69) / 12)
 
     return df
 
@@ -152,11 +128,8 @@ def read_chords(path_csv: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if path_csv.exists():
-        df = pd.read_csv(path_csv, sep=",")
-        try:
-            validate_schema(df, expected_columns)
-        except SchemaValidationError as e:
-            print(f"Error: {e}")
+        df = pd.read_csv(path_csv, sep=";")
+        validate_schema(df, expected_columns)
     else:
         raise FileNotFoundError(f"File not found: {path_csv}")
 

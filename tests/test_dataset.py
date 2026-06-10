@@ -1,12 +1,19 @@
 """
 All tests related to dataset.py and the involved logic.
 """
+import tomllib
 from pathlib import Path
 
 import pytest
 
 from choralebricks.constants import Instrument
-from choralebricks.dataset import EnsemblePermutations, Song, Track
+from choralebricks.dataset import (
+    PACKAGE_VERSION,
+    EnsemblePermutations,
+    Song,
+    SongDB,
+    Track,
+)
 
 
 @pytest.fixture
@@ -76,3 +83,35 @@ def test_import_my_module():
         import choralebricks.dataset
     except ImportError:
         pytest.fail("Importing my_module failed")
+
+
+def test_songdb_requires_version_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="Dataset VERSION file not found"):
+        SongDB(tmp_path)
+
+
+def test_songdb_rejects_mismatched_version(tmp_path):
+    (tmp_path / "VERSION").write_text("0.0.0\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="does not match"):
+        SongDB(tmp_path)
+
+
+def test_songdb_accepts_matching_version(tmp_path):
+    (tmp_path / "VERSION").write_text(f"{PACKAGE_VERSION}\n", encoding="utf-8")
+    (tmp_path / "metadata_songs.csv").write_text(
+        "song_id;composer;title;year\n",
+        encoding="utf-8",
+    )
+
+    song_db = SongDB(tmp_path)
+
+    assert song_db.version == PACKAGE_VERSION
+    assert song_db.songs == []
+
+
+def test_package_version_matches_pyproject():
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as handle:
+        pyproject_version = tomllib.load(handle)["project"]["version"]
+
+    assert PACKAGE_VERSION == pyproject_version

@@ -215,7 +215,7 @@ def figure_pitch_hist_SATB():
         try:
             cur_notes = read_notes(cur_track.path_notes)
 
-            notes[Voices(cur_track.voice)].extend(cur_notes["pitch"].tolist())
+            notes[Voices(cur_track.voice)].extend(cur_notes["pitch_audio"].tolist())
         except FileNotFoundError:
             print(f"Skipping notes from {cur_track.song_id}_{cur_track.voice}_{cur_track.instrument}. Reason: No annotations.")
 

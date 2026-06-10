@@ -71,7 +71,7 @@ class ChordSequence():
     def from_csv(file_path):
         """Read a CSV file with chord annotations into a ChordSequence object
 
-        Expected CSV format: start_meas,end_meas,chord
+        Expected CSV format: start_meas;end_meas;chord
         where start_meas is the start time of the chord in measures,
               end_meas is the end time of the chord in measures,
               chord is a string label in the notation by Harte et al.
@@ -85,7 +85,7 @@ class ChordSequence():
         -------
         seq : ChordSequence
         """
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(file_path, sep=";")
 
         start_meas = df["start_meas"].to_numpy()
         end_meas = df["end_meas"].to_numpy()

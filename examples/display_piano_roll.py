@@ -37,7 +37,7 @@ def main():
 
         ax.add_patch(
             plt.Rectangle(
-                (row["start_meas"], row["pitch"] - 0.5),
+                (row["start_meas"], row["pitch_sheet_music"] - 0.5),
                 row["dur_meas"],
                 1,
                 color=color,
