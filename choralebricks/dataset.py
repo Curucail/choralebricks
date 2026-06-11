@@ -1,9 +1,8 @@
 import copy
 import logging
 import os
-import tomllib
 from abc import ABC, abstractmethod
-from importlib.metadata import version as distribution_version
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 from itertools import product
 from pathlib import Path
 from typing import Any, Iterator, Optional, Union
@@ -20,11 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def package_version() -> str:
-    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    if pyproject_path.is_file():
-        with pyproject_path.open("rb") as handle:
-            return str(tomllib.load(handle)["project"]["version"])
-    return distribution_version("choralebricks")
+    try:
+        return distribution_version("choralebricks")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 PACKAGE_VERSION = package_version()

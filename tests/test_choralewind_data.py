@@ -1,4 +1,8 @@
+import csv
 import os
+import re
+import xml.etree.ElementTree as ET
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import pytest
@@ -9,6 +13,10 @@ from choralebricks.utils import read_notes, read_sheet_music_csv
 
 
 CHORALEWIND_PATH = Path(os.getenv("CHORALEWIND_PATH", "ChoraleWind"))
+SECONDS_PATTERN = re.compile(r"^-?\d+\.\d{9}$")
+F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
+INTEGER_PATTERN = re.compile(r"^-?\d+$")
+MSM_PARTS = {"11": "S", "12": "A", "21": "T", "22": "B"}
 
 pytestmark = pytest.mark.skipif(
     not CHORALEWIND_PATH.is_dir(),
@@ -75,6 +83,69 @@ def test_choralewind_score_schema(tracks):
     score = read_sheet_music_csv(tracks[0].path_sheet_music_csv)
     assert "pitch" in score.columns
     assert "pitch_sheet_music" not in score.columns
+
+
+def read_csv_rows(path):
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle, delimiter=";"))
+
+
+def expressive_velocities(song):
+    path = song.song_dir / f"{song.id}_02-expr.msm"
+    root = ET.parse(path).getroot()
+    velocities = {part: [] for part in MSM_PARTS.values()}
+    for part_node in root:
+        part = MSM_PARTS.get(part_node.attrib.get("number", ""))
+        if part is None:
+            continue
+        for note in part_node.iter():
+            if note.tag.rsplit("}", 1)[-1] != "note":
+                continue
+            velocity = int(
+                Decimal(note.attrib["velocity"]).quantize(
+                    Decimal("1"),
+                    rounding=ROUND_HALF_UP,
+                )
+            )
+            velocities[part].append(max(0, min(127, velocity)))
+    return velocities
+
+
+def test_choralewind_numeric_format_and_expressive_velocities(choralewind):
+    """Representative tracks and every score use expressive MSM velocity."""
+    voice_parts = {1: "S", 2: "A", 3: "T", 4: "B"}
+    for song in choralewind.songs:
+        expected = expressive_velocities(song)
+        score_rows = read_csv_rows(song.tracks[0].path_sheet_music_csv)
+        for part in voice_parts.values():
+            assert [
+                int(row["velocity"])
+                for row in sorted(
+                    (row for row in score_rows if row["part"] == part),
+                    key=lambda row: float(row["quarter_note_offset"]),
+                )
+            ] == expected[part]
+
+        for voice, part in voice_parts.items():
+            track = next(track for track in song.tracks if track.voice == voice)
+            notes = read_csv_rows(track.path_notes)
+            alignment = read_csv_rows(
+                song.song_dir / "alignments" / f"{Path(track.path_audio).stem}.csv"
+            )
+            assert len(notes) == len(alignment) == len(expected[part])
+            assert [int(row["velocity"]) for row in notes] == expected[part]
+
+            for note, aligned in zip(notes, alignment):
+                for field in ("start", "end", "duration"):
+                    assert SECONDS_PATTERN.fullmatch(note[field])
+                    assert note[field] == aligned[field]
+                assert Decimal(note["start"]) + Decimal(note["duration"]) == Decimal(
+                    note["end"]
+                )
+                assert INTEGER_PATTERN.fullmatch(note["pitch_audio"])
+                assert F0_MEDIAN_PATTERN.fullmatch(note["f0_median"])
+                for field in ("pitch_audio", "f0_median", "velocity"):
+                    assert note[field] == aligned[field]
 
 
 def test_choralewind_extra_instruments_are_woodwinds():

@@ -57,6 +57,7 @@ SCORE_FIELDS = [
     "quarter_note_BPM",
     "midiChannel",
 ]
+SCORE_PART_ORDER = {"S": 0, "A": 1, "T": 2, "B": 3}
 CHORD_FIELDS = ["start_meas", "end_meas", "chord"]
 ALIGNMENT_SCORE_FIELDS = [
     "start_meas",
@@ -284,6 +285,16 @@ def test_v11_csv_schemas(songs, tracks):
         assert raw_header == RAW_F0_FIELDS
         assert filled_header == FILLED_F0_FIELDS
         assert alignment_header == ALIGNMENT_FIELDS
+
+
+def test_score_rows_are_sorted_by_start_and_satb(songs):
+    for song in songs:
+        _, rows = read_csv_rows(song.tracks[0].path_sheet_music_csv)
+        keys = [
+            (Decimal(row["start_meas"]), SCORE_PART_ORDER[row["part"]])
+            for row in rows
+        ]
+        assert keys == sorted(keys)
 
 
 def test_measure_format_and_exclusive_ends(choralebricks):

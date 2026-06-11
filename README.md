@@ -32,10 +32,8 @@ Transactions of the International Society for Music Information Retrieval, 2025.
 ## :computer: Installation and Setup
 
 > [!WARNING]
-> This repository currently supports parsing ChoraleBricks v1.1, it is not backwards compatible.
+> This repository currently supports parsing ChoraleBricks v1.1 and ChoraleWind v1.0, it is not backwards compatible.
 > If you want to use this repo with ChoraleBricks v1.0.x, please use an older version tag in GitHub.
-> Starting from v1.1, every dataset root must contain a `VERSION` file. Its value must exactly
-> match the installed ChoraleBricks package version.
 
 Clone repository, then:
 

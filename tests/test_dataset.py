@@ -1,14 +1,12 @@
 """
 All tests related to dataset.py and the involved logic.
 """
-import tomllib
 from pathlib import Path
 
 import pytest
 
 from choralebricks.constants import Instrument
 from choralebricks.dataset import (
-    PACKAGE_VERSION,
     EnsemblePermutations,
     Song,
     SongDB,
@@ -94,10 +92,3 @@ def test_songdb_loads_without_version_file(tmp_path):
     song_db = SongDB(tmp_path)
 
     assert song_db.songs == []
-
-
-def test_package_version_matches_pyproject():
-    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as handle:
-        pyproject_version = tomllib.load(handle)["project"]["version"]
-
-    assert PACKAGE_VERSION == pyproject_version

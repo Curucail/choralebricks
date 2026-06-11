@@ -7,7 +7,6 @@ import bisect
 import csv
 import math
 import shutil
-import tomllib
 import xml.etree.ElementTree as ET
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -15,8 +14,7 @@ from pathlib import Path
 
 DEFAULT_SOURCE = Path(r"C:\datasets\choralebricks\1.0.1")
 DEFAULT_TARGET = Path(r"C:\datasets\choralebricks\1.1.0")
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+CHORALEBRICKS_VERSION = "1.1.0"
 RELEASE_DATE = "10.06.2026"
 MEASURE_STEP = Decimal("0.001")
 F0_MEDIAN_STEP = Decimal("0.001")
@@ -98,6 +96,7 @@ SCORE_1_1_FIELDS = [
     "quarter_note_BPM",
     "midiChannel",
 ]
+SCORE_PART_ORDER = {"S": 0, "A": 1, "T": 2, "B": 3}
 ORPHAN_NOTES_RELATIVE_PATH = Path(
     "01_AudioAndAnnotations"
     "/Gesius_DuFriedensfuerstHerrJesuChrist"
@@ -121,11 +120,6 @@ PREVIOUS_DIATONIC = {
 ACCIDENTAL_TO_OFFSET = {"ff": -2, "f": -1, "n": 0, "s": 1, "ss": 2}
 OFFSET_TO_ACCIDENTAL = {value: key for key, value in ACCIDENTAL_TO_OFFSET.items()}
 SOURCE_KEY_OFFSETS = {"f": 1, "c": 1}
-
-
-def project_version() -> str:
-    with PYPROJECT_PATH.open("rb") as handle:
-        return str(tomllib.load(handle)["project"]["version"])
 
 
 def read_dict_rows(
@@ -155,6 +149,16 @@ def write_dict_rows(
 
 def normalize_row(row: dict[str, str], fields: list[str]) -> dict[str, str]:
     return {field: row.get(field) or "" for field in fields}
+
+
+def sort_score_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            Decimal(row["start_meas"]),
+            SCORE_PART_ORDER[row["part"]],
+        ),
+    )
 
 
 def format_measure_value(value: str, *, exclusive_end: bool = False) -> str:
@@ -495,7 +499,10 @@ def migrate_semicolon_csv(path: Path) -> int:
                     "midiChannel": old["midiChannel"],
                 }
             )
-        write_dict_rows(path, SCORE_1_1_FIELDS, migrated)
+        write_dict_rows(path, SCORE_1_1_FIELDS, sort_score_rows(migrated))
+    elif header == SCORE_1_1_FIELDS:
+        normalized = [normalize_row(row, SCORE_1_1_FIELDS) for row in rows]
+        write_dict_rows(path, SCORE_1_1_FIELDS, sort_score_rows(normalized))
     else:
         write_dict_rows(
             path,
@@ -531,8 +538,7 @@ def update_changelog(path: Path, version: str) -> None:
         "- Breaking release with no backwards compatibility for version 1.0.x\n"
         "- Added mandatory VERSION files for dataset/package compatibility checks\n"
         "- Changed all CSV files to semicolon separation\n"
-        "- Renamed and reordered alignment, notes, and score csv columns to "
-        "conform to the group's shared note-level (SPR) column specification\n"
+        "- Renamed and reordered alignment, notes, and score csv columns\n"
         "- Dropped uninformative score columns (grace, midiProgram, pitchWritten, "
         "pitchNameWritten)\n"
         "- Added a seconds-based end column (start + duration) to the alignment "
@@ -583,20 +589,18 @@ def update_changelog(path: Path, version: str) -> None:
         "`t_dur` -> `duration`, `duration_quarterLength` -> `duration_quarter`, "
         "`pitch_sheet_music` -> `pitch`, `pitchName` -> `pitch_name`, `timeSig` "
         "-> `time_sig`. Added `end` (= `start` + `duration`) and `velocity` "
-        "(from the paired note). Columns reordered to the SPR spec.\n"
+        "(from the paired note).\n"
         "- *_notes.csv: `TIME` -> `start`, `DURATION` -> `duration`, `LEVEL` -> "
         "`velocity` (integer in [0, 127]), and `LABEL` -> `label`. Added `end` "
         "(= `start` + `duration`) and `pitch_audio`, derived from `f0_median` "
         "(A4 = 442 Hz). `f0_median` replaces `VALUE` and is recomputed from raw "
-        "F0 csv inside the closed note interval. Columns reordered to the SPR "
-        "spec.\n"
+        "F0 csv inside the closed note interval.\n"
         "- Raw F0: `TIME` -> `t`, `VALUE` -> `f0`, and `LABEL` -> `label`.\n"
         "- Score: `duration_quarterLength` -> `duration_quarter`, `pitchName` "
         "-> `pitch_name`, `timeSig` -> `time_sig`, `volume` -> `velocity` "
         "(integer in [0, 127]), `quarternoteoffset` -> `quarter_note_offset`, "
         "`quarterNoteBPM` -> `quarter_note_BPM`. Dropped `grace`, `midiProgram`, "
-        "`pitchWritten`, and `pitchNameWritten`. Columns reordered to the SPR "
-        "spec.\n\n"
+        "`pitchWritten`, and `pitchNameWritten`.\n\n"
     )
     heading = "# ChoraleBricks Changelog\n\n"
     if not old.startswith(heading):
@@ -611,9 +615,7 @@ def migrate_release(source: Path, target: Path) -> None:
     if target.exists():
         raise FileExistsError(f"Target already exists: {target}.")
 
-    version = project_version()
-    if version != "1.1.0":
-        raise RuntimeError(f"Expected repository version 1.1.0, found {version}.")
+    version = CHORALEBRICKS_VERSION
 
     shutil.copytree(source, target, copy_function=shutil.copy2)
     try:
