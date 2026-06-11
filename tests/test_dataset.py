@@ -85,20 +85,7 @@ def test_import_my_module():
         pytest.fail("Importing my_module failed")
 
 
-def test_songdb_requires_version_file(tmp_path):
-    with pytest.raises(FileNotFoundError, match="Dataset VERSION file not found"):
-        SongDB(tmp_path)
-
-
-def test_songdb_rejects_mismatched_version(tmp_path):
-    (tmp_path / "VERSION").write_text("0.0.0\n", encoding="utf-8")
-
-    with pytest.raises(RuntimeError, match="does not match"):
-        SongDB(tmp_path)
-
-
-def test_songdb_accepts_matching_version(tmp_path):
-    (tmp_path / "VERSION").write_text(f"{PACKAGE_VERSION}\n", encoding="utf-8")
+def test_songdb_loads_without_version_file(tmp_path):
     (tmp_path / "metadata_songs.csv").write_text(
         "song_id;composer;title;year\n",
         encoding="utf-8",
@@ -106,7 +93,6 @@ def test_songdb_accepts_matching_version(tmp_path):
 
     song_db = SongDB(tmp_path)
 
-    assert song_db.version == PACKAGE_VERSION
     assert song_db.songs == []
 
 

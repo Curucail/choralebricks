@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from choralebricks.constants import INSTRUMENTS_WOODWIND, INSTRUMENT_STRINGS, Instrument
-from choralebricks.dataset import PACKAGE_VERSION, SongDB
+from choralebricks.dataset import SongDB
 from choralebricks.utils import read_notes, read_sheet_music_csv
 
 
@@ -32,8 +32,6 @@ def test_choralewind_number_of_songs_and_tracks(choralewind, tracks):
     """Test number of ChoraleWind songs and tracks."""
     assert len(choralewind.songs) == 311
     assert len(tracks) == 8397
-    assert choralewind.version == PACKAGE_VERSION
-    assert (CHORALEWIND_PATH / "VERSION").read_text(encoding="utf-8").strip() == PACKAGE_VERSION
 
 
 def test_choralewind_score_paths_and_optional_chords(tracks):
@@ -61,21 +59,22 @@ def test_choralewind_notes_schema(tracks):
     raw_notes = read_notes(tracks[0].path_notes, rename_cols=False)
     notes = read_notes(tracks[0].path_notes)
     assert list(raw_notes.columns) == [
-        "t_start",
-        "t_dur",
+        "start",
+        "end",
+        "duration",
         "pitch_audio",
         "f0_median",
-        "level",
+        "velocity",
         "label",
     ]
-    assert list(notes.columns) == ["t_start", "t_dur", "pitch_audio", "f0_median"]
+    assert list(notes.columns) == ["start", "end", "duration", "pitch_audio", "f0_median"]
 
 
 def test_choralewind_score_schema(tracks):
-    """Test top-level score CSVs use the explicit score-pitch name."""
+    """Test top-level score CSVs use the spec pitch column name."""
     score = read_sheet_music_csv(tracks[0].path_sheet_music_csv)
-    assert "pitch_sheet_music" in score.columns
-    assert "pitch" not in score.columns
+    assert "pitch" in score.columns
+    assert "pitch_sheet_music" not in score.columns
 
 
 def test_choralewind_extra_instruments_are_woodwinds():

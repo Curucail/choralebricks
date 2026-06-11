@@ -11,30 +11,33 @@ import pandas as pd
 import pytest
 import soundfile as sf
 
-from choralebricks.dataset import PACKAGE_VERSION, EnsemblePermutations, SongDB
+from choralebricks.dataset import EnsemblePermutations, SongDB
 from choralebricks.utils import read_f0_sv, read_f0, read_notes, read_chords
 from choralebricks import ChordSequence
 
 
 ALIGNMENT_FIELDS = [
-    "t_start",
-    "t_dur",
-    "pitch_audio",
-    "f0_median",
     "start_meas",
     "end_meas",
-    "duration_quarterLength",
-    "pitch_sheet_music",
-    "pitchName",
-    "timeSig",
+    "duration_quarter",
+    "pitch",
+    "pitch_name",
     "part",
-]
-NOTES_FIELDS = [
-    "t_start",
-    "t_dur",
+    "time_sig",
+    "velocity",
+    "start",
+    "end",
+    "duration",
     "pitch_audio",
     "f0_median",
-    "level",
+]
+NOTES_FIELDS = [
+    "start",
+    "end",
+    "duration",
+    "pitch_audio",
+    "f0_median",
+    "velocity",
     "label",
 ]
 RAW_F0_FIELDS = ["t", "f0", "label"]
@@ -42,33 +45,29 @@ FILLED_F0_FIELDS = ["t", "f0"]
 SCORE_FIELDS = [
     "start_meas",
     "end_meas",
-    "duration_quarterLength",
-    "pitch_sheet_music",
-    "pitchName",
-    "timeSig",
+    "duration_quarter",
+    "pitch",
+    "pitch_name",
+    "part",
+    "time_sig",
     "articulation",
     "expression",
-    "grace",
-    "part",
+    "velocity",
+    "quarter_note_offset",
+    "quarter_note_BPM",
     "midiChannel",
-    "midiProgram",
-    "volume",
-    "pitchWritten",
-    "pitchNameWritten",
-    "quarternoteoffset",
-    "quarterNoteBPM",
 ]
 CHORD_FIELDS = ["start_meas", "end_meas", "chord"]
 ALIGNMENT_SCORE_FIELDS = [
     "start_meas",
     "end_meas",
-    "pitchName",
-    "timeSig",
+    "pitch_name",
+    "time_sig",
     "part",
 ]
 NUMERIC_ALIGNMENT_SCORE_FIELDS = [
-    "duration_quarterLength",
-    "pitch_sheet_music",
+    "duration_quarter",
+    "pitch",
 ]
 MEASURE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
 F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
@@ -112,8 +111,8 @@ def alignment_path(track):
 def note_intervals(notes):
     return [
         (
-            Decimal(note["t_start"]),
-            Decimal(note["t_start"]) + Decimal(note["t_dur"]),
+            Decimal(note["start"]),
+            Decimal(note["start"]) + Decimal(note["duration"]),
         )
         for note in notes
     ]
@@ -189,8 +188,7 @@ def test_number_of_songs(songs):
     assert len(songs) == 10
 
 
-def test_dataset_version_and_track_count(choralebricks, tracks):
-    assert choralebricks.version == PACKAGE_VERSION == "1.1.0"
+def test_track_count(choralebricks, tracks):
     assert len(tracks) == 193
 
 
@@ -261,7 +259,7 @@ def test_csv_headers(track):
     f0_head = read_f0_sv(path_sv_f0, rename_cols=False).columns if track.path_f0 else []
     notes_head = read_notes(track.path_notes, rename_cols=False).columns if track.path_notes else []
     assert list(f0_head) == ["t", "f0", "label"]
-    assert list(notes_head) == ["t_start", "t_dur", "pitch_audio", "f0_median", "level", "label"]
+    assert list(notes_head) == ["start", "end", "duration", "pitch_audio", "f0_median", "velocity", "label"]
 
 
 def test_all_csv_files_are_semicolon_delimited(choralebricks):
@@ -309,8 +307,8 @@ def test_score_pitch_names_match_midi(songs):
     for song in songs:
         _, rows = read_csv_rows(song.tracks[0].path_sheet_music_csv)
         for row in rows:
-            assert Decimal(row["pitch_sheet_music"]) == pitch_name_to_midi(
-                row["pitchName"]
+            assert Decimal(row["pitch"]) == pitch_name_to_midi(
+                row["pitch_name"]
             )
         score_rows += len(rows)
     assert score_rows == 1887
@@ -323,7 +321,7 @@ def test_alignments_match_notes_and_scores(songs):
         score_by_part = {
             part: sorted(
                 (row for row in score_rows if row["part"] == part),
-                key=lambda row: Decimal(row["quarternoteoffset"]),
+                key=lambda row: Decimal(row["quarter_note_offset"]),
             )
             for part in ("S", "A", "T", "B")
         }
@@ -336,6 +334,9 @@ def test_alignments_match_notes_and_scores(songs):
             ]
             assert [row["f0_median"] for row in notes] == [
                 row["f0_median"] for row in alignment
+            ]
+            assert [row["velocity"] for row in notes] == [
+                row["velocity"] for row in alignment
             ]
             part = alignment[0]["part"]
             score_voice = score_by_part[part]
@@ -353,8 +354,8 @@ def test_alignments_match_notes_and_scores(songs):
                         score_row[field]
                     )
                 assert Decimal(
-                    alignment_row["pitch_sheet_music"]
-                ) == pitch_name_to_midi(alignment_row["pitchName"])
+                    alignment_row["pitch"]
+                ) == pitch_name_to_midi(alignment_row["pitch_name"])
             note_rows += len(notes)
     assert note_rows == 9097
 
@@ -395,8 +396,8 @@ def test_f0_annotations_and_note_medians(tracks):
             median = note["f0_median"]
             assert F0_MEDIAN_PATTERN.fullmatch(median)
             assert Decimal(median) > 0
-            start = Decimal(note["t_start"])
-            end = start + Decimal(note["t_dur"])
+            start = Decimal(note["start"])
+            end = start + Decimal(note["duration"])
             first = bisect.bisect_left(raw_times, start)
             last = bisect.bisect_right(raw_times, end)
             assert median == format_f0_median(raw_values[first:last])
@@ -470,7 +471,7 @@ def test_dur_note_audio(track):
     """Audio and note annotations should have similar length (+-1 seconds)"""
     dur_audio = track.min_samples / track.sample_rate
     last_note = read_notes(track.path_notes).tail(1)
-    dur_notes = (last_note["t_start"] + last_note["t_dur"]).values[0]
+    dur_notes = (last_note["start"] + last_note["duration"]).values[0]
     assert np.abs(dur_audio - dur_notes) < 1.0
 
 

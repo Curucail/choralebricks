@@ -65,7 +65,7 @@ def read_notes(
     path_csv: Path,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    expected_columns = ["t_start", "t_dur", "pitch_audio", "f0_median", "level", "label"]
+    expected_columns = ["start", "end", "duration", "pitch_audio", "f0_median", "velocity", "label"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
@@ -77,7 +77,7 @@ def read_notes(
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     if rename_cols:
-        df = df.drop(columns=["level", "label"])
+        df = df.drop(columns=["velocity", "label"])
 
     return df
 
@@ -89,21 +89,17 @@ def read_sheet_music_csv(
     expected_columns = [
         "start_meas",
         "end_meas",
-        "duration_quarterLength",
-        "pitch_sheet_music",
-        "pitchName",
-        "timeSig",
+        "duration_quarter",
+        "pitch",
+        "pitch_name",
+        "part",
+        "time_sig",
         "articulation",
         "expression",
-        "grace",
-        "part",
+        "velocity",
+        "quarter_note_offset",
+        "quarter_note_BPM",
         "midiChannel",
-        "midiProgram",
-        "volume",
-        "pitchWritten",
-        "pitchNameWritten",
-        "quarternoteoffset",
-        "quarterNoteBPM"
     ]
 
     if path_csv == None:
@@ -116,7 +112,7 @@ def read_sheet_music_csv(
         raise FileNotFoundError(f"File not found: {path_csv}")
 
     df["dur_meas"] = df["end_meas"] - df["start_meas"]
-    df["pitch_center_freq"] = A4 * 2**((df["pitch_sheet_music"] - 69) / 12)
+    df["pitch_center_freq"] = A4 * 2**((df["pitch"] - 69) / 12)
 
     return df
 

@@ -30,23 +30,6 @@ def package_version() -> str:
 PACKAGE_VERSION = package_version()
 
 
-def validate_dataset_version(root_dir: Path) -> str:
-    version_path = root_dir / "VERSION"
-    if not version_path.is_file():
-        raise FileNotFoundError(
-            f"Dataset VERSION file not found: {version_path}. "
-            f"ChoraleBricks {PACKAGE_VERSION} requires a matching dataset release."
-        )
-
-    dataset_version = version_path.read_text(encoding="utf-8").strip()
-    if dataset_version != PACKAGE_VERSION:
-        raise RuntimeError(
-            f"Dataset version {dataset_version!r} does not match "
-            f"ChoraleBricks package version {PACKAGE_VERSION!r}."
-        )
-    return dataset_version
-
-
 class Track(BaseModel):
     """
     Represents a track and its metadata.
@@ -276,7 +259,6 @@ class SongDB:
         else:
             self.root_dir = Path(root_dir).expanduser()
 
-        self.version = validate_dataset_version(self.root_dir)
         self.songs: list[Song] = []
         self.__collect_songs()
         self._current_index = 0

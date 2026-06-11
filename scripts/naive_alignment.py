@@ -28,7 +28,7 @@ def main():
             cur_sheet_music = read_sheet_music_csv(cur_track.path_sheet_music_csv)
             cur_sheet_music = cur_sheet_music.sort_values("start_meas")
             cur_notes = read_notes(cur_track.path_notes)
-            cur_notes = cur_notes.sort_values("t_start")
+            cur_notes = cur_notes.sort_values("start")
 
             # filter sheet music to voice
             cur_voice_name = voice_to_name(cur_track.voice)
@@ -44,16 +44,16 @@ def main():
             # naive alignment by 1-1 mapping
             cur_notes["start_meas"] = cur_sheet_music["start_meas"].values
             cur_notes["end_meas"] = cur_sheet_music["end_meas"].values
-            cur_notes["duration_quarterLength"] = cur_sheet_music["duration_quarterLength"].values
-            cur_notes["pitch_sheet_music"] = cur_sheet_music["pitch_sheet_music"].values
-            cur_notes["pitchName"] = cur_sheet_music["pitchName"].values
-            cur_notes["timeSig"] = cur_sheet_music["timeSig"].values
+            cur_notes["duration_quarter"] = cur_sheet_music["duration_quarter"].values
+            cur_notes["pitch"] = cur_sheet_music["pitch"].values
+            cur_notes["pitch_name"] = cur_sheet_music["pitch_name"].values
+            cur_notes["time_sig"] = cur_sheet_music["time_sig"].values
             cur_notes["part"] = cur_sheet_music["part"].values
 
             # Check if pitches are the same for every note
             if not any(
                 cur_notes["pitch_audio"].values
-                == cur_sheet_music["pitch_sheet_music"].values
+                == cur_sheet_music["pitch"].values
             ):
                 logging.info(f"Found pitch problem in {cur_track.song_id} -> {cur_track.path_audio.name}")
                 logging.info(cur_notes)
@@ -61,7 +61,7 @@ def main():
                 if any(
                     abs(
                         cur_notes["pitch_audio"].values
-                        - cur_sheet_music["pitch_sheet_music"].values
+                        - cur_sheet_music["pitch"].values
                     )
                     == 12
                 ):

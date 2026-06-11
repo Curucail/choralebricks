@@ -21,6 +21,7 @@ RELEASE_DATE = "10.06.2026"
 MEASURE_STEP = Decimal("0.001")
 F0_MEDIAN_STEP = Decimal("0.001")
 A4_HZ = 442.0
+VELOCITY_MAX = 127
 
 ALIGNMENT_1_0_FIELDS = [
     "t_start",
@@ -36,25 +37,28 @@ ALIGNMENT_1_0_FIELDS = [
     "part",
 ]
 ALIGNMENT_1_1_FIELDS = [
-    "t_start",
-    "t_dur",
-    "pitch_audio",
-    "f0_median",
     "start_meas",
     "end_meas",
-    "duration_quarterLength",
-    "pitch_sheet_music",
-    "pitchName",
-    "timeSig",
+    "duration_quarter",
+    "pitch",
+    "pitch_name",
     "part",
+    "time_sig",
+    "velocity",
+    "start",
+    "end",
+    "duration",
+    "pitch_audio",
+    "f0_median",
 ]
 NOTES_1_0_FIELDS = ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]
 NOTES_1_1_FIELDS = [
-    "t_start",
-    "t_dur",
+    "start",
+    "end",
+    "duration",
     "pitch_audio",
     "f0_median",
-    "level",
+    "velocity",
     "label",
 ]
 RAW_F0_1_0_FIELDS = ["TIME", "VALUE", "LABEL"]
@@ -82,21 +86,17 @@ SCORE_1_0_FIELDS = [
 SCORE_1_1_FIELDS = [
     "start_meas",
     "end_meas",
-    "duration_quarterLength",
-    "pitch_sheet_music",
-    "pitchName",
-    "timeSig",
+    "duration_quarter",
+    "pitch",
+    "pitch_name",
+    "part",
+    "time_sig",
     "articulation",
     "expression",
-    "grace",
-    "part",
+    "velocity",
+    "quarter_note_offset",
+    "quarter_note_BPM",
     "midiChannel",
-    "midiProgram",
-    "volume",
-    "pitchWritten",
-    "pitchNameWritten",
-    "quarternoteoffset",
-    "quarterNoteBPM",
 ]
 ORPHAN_NOTES_RELATIVE_PATH = Path(
     "01_AudioAndAnnotations"
@@ -183,8 +183,8 @@ def format_measure_fields(
 def note_intervals(notes: list[dict[str, str]]) -> list[tuple[float, float]]:
     return [
         (
-            float(note["t_start"]),
-            float(note["t_start"]) + float(note["t_dur"]),
+            float(note["start"]),
+            float(note["start"]) + float(note["duration"]),
         )
         for note in notes
     ]
@@ -212,6 +212,14 @@ def format_f0_median(values: list[Decimal]) -> str:
 def pitch_audio_from_f0_median(f0_median: str) -> str:
     midi = Decimal(12) * Decimal(math.log2(float(f0_median) / A4_HZ)) + Decimal(69)
     return str(int(midi.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+
+
+def velocity_from_scalar(value: str) -> str:
+    """Convert a [0, 1] loudness scalar (e.g. volume/level) to MIDI velocity."""
+    velocity = int(
+        (Decimal(value) * VELOCITY_MAX).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    return str(max(0, min(VELOCITY_MAX, velocity)))
 
 
 def recompute_note_f0_medians(
@@ -242,8 +250,8 @@ def recompute_note_f0_medians(
         zip(notes, alignment),
         start=2,
     ):
-        start = Decimal(note["t_start"])
-        end = start + Decimal(note["t_dur"])
+        start = Decimal(note["start"])
+        end = start + Decimal(note["duration"])
         first = bisect.bisect_left(timestamps, start)
         last = bisect.bisect_right(timestamps, end)
         if first == last:
@@ -407,29 +415,37 @@ def migrate_annotation_pair(notes_path: Path, alignment_path: Path) -> int:
     new_notes: list[dict[str, str]] = []
     new_alignment: list[dict[str, str]] = []
     for note, alignment in zip(old_notes, old_alignment):
+        velocity = velocity_from_scalar(note["LEVEL"])
+        note_end = str(Decimal(note["TIME"]) + Decimal(note["DURATION"]))
+        alignment_end = str(
+            Decimal(alignment["t_start"]) + Decimal(alignment["t_dur"])
+        )
         new_notes.append(
             {
-                "t_start": note["TIME"],
-                "t_dur": note["DURATION"],
+                "velocity": velocity,
+                "start": note["TIME"],
+                "end": note_end,
+                "duration": note["DURATION"],
                 "pitch_audio": "",
                 "f0_median": "",
-                "level": note["LEVEL"],
                 "label": note.get("LABEL") or "",
             }
         )
         new_alignment.append(
             {
-                "t_start": alignment["t_start"],
-                "t_dur": alignment["t_dur"],
-                "pitch_audio": "",
-                "f0_median": "",
                 "start_meas": alignment["start_meas"],
                 "end_meas": alignment["end_meas"],
-                "duration_quarterLength": alignment["duration_quarterLength"],
-                "pitch_sheet_music": alignment["pitch_sheet_music"],
-                "pitchName": alignment["pitchName"],
-                "timeSig": alignment["timeSig"],
+                "duration_quarter": alignment["duration_quarterLength"],
+                "pitch": alignment["pitch_sheet_music"],
+                "pitch_name": alignment["pitchName"],
                 "part": alignment["part"],
+                "time_sig": alignment["timeSig"],
+                "velocity": velocity,
+                "start": alignment["t_start"],
+                "end": alignment_end,
+                "duration": alignment["t_dur"],
+                "pitch_audio": "",
+                "f0_median": "",
             }
         )
 
@@ -461,9 +477,24 @@ def migrate_semicolon_csv(path: Path) -> int:
     if header == SCORE_1_0_FIELDS:
         migrated = []
         for row in rows:
-            new_row = normalize_row(row, SCORE_1_0_FIELDS)
-            new_row["pitch_sheet_music"] = new_row.pop("pitch")
-            migrated.append(normalize_row(new_row, SCORE_1_1_FIELDS))
+            old = normalize_row(row, SCORE_1_0_FIELDS)
+            migrated.append(
+                {
+                    "start_meas": old["start_meas"],
+                    "end_meas": old["end_meas"],
+                    "duration_quarter": old["duration_quarterLength"],
+                    "pitch": old["pitch"],
+                    "pitch_name": old["pitchName"],
+                    "part": old["part"],
+                    "time_sig": old["timeSig"],
+                    "articulation": old["articulation"],
+                    "expression": old["expression"],
+                    "velocity": velocity_from_scalar(old["volume"]),
+                    "quarter_note_offset": old["quarternoteoffset"],
+                    "quarter_note_BPM": old["quarterNoteBPM"],
+                    "midiChannel": old["midiChannel"],
+                }
+            )
         write_dict_rows(path, SCORE_1_1_FIELDS, migrated)
     else:
         write_dict_rows(
@@ -500,8 +531,16 @@ def update_changelog(path: Path, version: str) -> None:
         "- Breaking release with no backwards compatibility for version 1.0.x\n"
         "- Added mandatory VERSION files for dataset/package compatibility checks\n"
         "- Changed all CSV files to semicolon separation\n"
-        "- Renamed and reordered alignment, F0, notes, and score csv columns for "
-        "better consistency and correctness\n"
+        "- Renamed and reordered alignment, notes, and score csv columns to "
+        "conform to the group's shared note-level (SPR) column specification\n"
+        "- Dropped uninformative score columns (grace, midiProgram, pitchWritten, "
+        "pitchNameWritten)\n"
+        "- Added a seconds-based end column (start + duration) to the alignment "
+        "and notes csv files\n"
+        "- Added a velocity column to the alignment csv files (taken from the "
+        "paired note) and stored velocity as an integer in [0, 127], converted "
+        "from the former score volume and note level scalars via "
+        "round(scalar * 127)\n"
         "- Recomputed note and alignment f0_median from raw F0 export in each "
         "closed note interval, rounded to three decimals.\n"
         "- Recomputed note and alignment pitch_audio from f0_median as "
@@ -521,33 +560,43 @@ def update_changelog(path: Path, version: str) -> None:
         "| --- | --- | --- |\n"
         "| Alignment | t_start, f0_mean, t_dur, pitch_audio, start_meas, "
         "end_meas, duration_quarterLength, pitch_sheet_music, pitchName, "
-        "timeSig, part | t_start, t_dur, pitch_audio, f0_median, start_meas, "
-        "end_meas, duration_quarterLength, pitch_sheet_music, pitchName, "
-        "timeSig, part |\n"
-        "| Notes | TIME, VALUE, DURATION, LEVEL, LABEL | t_start, t_dur, "
-        "pitch_audio, f0_median, level, label |\n"
+        "timeSig, part | start_meas, end_meas, duration_quarter, pitch, "
+        "pitch_name, part, time_sig, velocity, start, end, duration, "
+        "pitch_audio, f0_median |\n"
+        "| Notes | TIME, VALUE, DURATION, LEVEL, LABEL | start, end, duration, "
+        "pitch_audio, f0_median, velocity, label |\n"
         "| Raw F0 | TIME, VALUE, LABEL | t, f0, label |\n"
         "| Filled F0 | t, f0 | t, f0 |\n"
         "| Score | start_meas, end_meas, duration_quarterLength, pitch, "
         "pitchName, timeSig, articulation, expression, grace, part, "
         "midiChannel, midiProgram, volume, pitchWritten, pitchNameWritten, "
         "quarternoteoffset, quarterNoteBPM | start_meas, end_meas, "
-        "duration_quarterLength, pitch_sheet_music, pitchName, timeSig, "
-        "articulation, expression, grace, part, midiChannel, midiProgram, "
-        "volume, pitchWritten, pitchNameWritten, quarternoteoffset, "
-        "quarterNoteBPM |\n"
+        "duration_quarter, pitch, pitch_name, part, time_sig, articulation, "
+        "expression, velocity, quarter_note_offset, quarter_note_BPM, "
+        "midiChannel |\n"
         "| Chords | start_meas, end_meas, chord | "
         "start_meas, end_meas, chord |\n\n"
         "Notes to the csv changes:\n\n"
         "- Alignment csv files: `f0_mean` is now called `f0_median` since it "
-        "represents the median value, not the mean. `f0_median` is recomputed "
-        "from raw F0 csv inside the closed note interval.\n"
-        "- *_notes.csv: `TIME` -> `t_start`, `DURATION` -> `t_dur`, `LEVEL` -> "
-        "`level`, and `LABEL` -> `label`. Added `pitch_audio`, derived from "
-        "`f0_median` (A4 = 442 Hz). `f0_median` replaces `VALUE` and is "
-        "recomputed from raw F0 csv inside the closed note interval.\n"
+        "represents the median value, not the mean, and is recomputed from raw "
+        "F0 csv inside the closed note interval. Renamed `t_start` -> `start`, "
+        "`t_dur` -> `duration`, `duration_quarterLength` -> `duration_quarter`, "
+        "`pitch_sheet_music` -> `pitch`, `pitchName` -> `pitch_name`, `timeSig` "
+        "-> `time_sig`. Added `end` (= `start` + `duration`) and `velocity` "
+        "(from the paired note). Columns reordered to the SPR spec.\n"
+        "- *_notes.csv: `TIME` -> `start`, `DURATION` -> `duration`, `LEVEL` -> "
+        "`velocity` (integer in [0, 127]), and `LABEL` -> `label`. Added `end` "
+        "(= `start` + `duration`) and `pitch_audio`, derived from `f0_median` "
+        "(A4 = 442 Hz). `f0_median` replaces `VALUE` and is recomputed from raw "
+        "F0 csv inside the closed note interval. Columns reordered to the SPR "
+        "spec.\n"
         "- Raw F0: `TIME` -> `t`, `VALUE` -> `f0`, and `LABEL` -> `label`.\n"
-        "- Score: `pitch` -> `pitch_sheet_music`.\n\n"
+        "- Score: `duration_quarterLength` -> `duration_quarter`, `pitchName` "
+        "-> `pitch_name`, `timeSig` -> `time_sig`, `volume` -> `velocity` "
+        "(integer in [0, 127]), `quarternoteoffset` -> `quarter_note_offset`, "
+        "`quarterNoteBPM` -> `quarter_note_BPM`. Dropped `grace`, `midiProgram`, "
+        "`pitchWritten`, and `pitchNameWritten`. Columns reordered to the SPR "
+        "spec.\n\n"
     )
     heading = "# ChoraleBricks Changelog\n\n"
     if not old.startswith(heading):

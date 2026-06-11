@@ -37,7 +37,7 @@ def main():
 
         ax.add_patch(
             plt.Rectangle(
-                (row["start_meas"], row["pitch_sheet_music"] - 0.5),
+                (row["start_meas"], row["pitch"] - 0.5),
                 row["dur_meas"],
                 1,
                 color=color,
@@ -82,8 +82,8 @@ def main():
     for _, row in cur_notes.iterrows():
         ax.add_patch(
             plt.Rectangle(
-                (row["t_start"], row["f0_median"] - 5),
-                row["t_dur"],
+                (row["start"], row["f0_median"] - 5),
+                row["duration"],
                 10,
                 color=color,
                 alpha=0.5
@@ -100,7 +100,7 @@ def main():
     plt.grid(alpha=0.3)
 
     last_note = cur_notes.tail(1)
-    plt.xlim((0, 2 + last_note["t_start"].values[0] + last_note["t_dur"].values[0]))
+    plt.xlim((0, 2 + last_note["start"].values[0] + last_note["duration"].values[0]))
     plt.ylim((0, 600))
 
     plt.show()
