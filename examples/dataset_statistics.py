@@ -189,7 +189,8 @@ def figure_tracks_per_voice_instrument(df_tracks):
     # ax.set_title("Number of Tracks per Voice and Instrument", fontsize=16)
     ax.set_xlabel("#Tracks", fontsize=14)
     ax.set_ylabel("Instrument", fontsize=14)
-    ax.set_xlim(0, 11)
+    max_tracks = grouped[0].max()
+    ax.set_xlim(0, max_tracks * 1.05)
     ax.spines['top'].set_visible(False)  # Remove the top spine
     ax.spines['right'].set_visible(False)  # Remove the right spine
     ax.set_ylim(-1, grouped.shape[0])
@@ -258,7 +259,7 @@ def figure_pitch_hist_SATB():
 
         sns.despine(right=False)
         axes_flat[cur_idx].set_xlim((20, 90))
-        ax_count.set_ylim((0, 2375))
+        ax_count.set_ylim(bottom=0)
         ax_count.set_ylabel("#Note Events")
         axes_flat[cur_idx].set_title((
                 f"{VOICE_STRINGS[cur_voice]}: "
