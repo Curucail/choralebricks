@@ -1,9 +1,7 @@
 import bisect
 import csv
-import math
 import os
-import re
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -11,72 +9,24 @@ import pandas as pd
 import pytest
 import soundfile as sf
 
+from choralebricks import spec
 from choralebricks.dataset import EnsemblePermutations, SongDB
 from choralebricks.utils import read_f0_sv, read_f0, read_notes, read_chords
 from choralebricks import ChordSequence
 
 
-ALIGNMENT_FIELDS = [
-    "start_meas",
-    "end_meas",
-    "duration_quarter",
-    "pitch",
-    "pitch_name",
-    "part",
-    "time_sig",
-    "velocity",
-    "start",
-    "end",
-    "duration",
-    "pitch_audio",
-    "f0_median",
-]
-NOTES_FIELDS = [
-    "start",
-    "end",
-    "duration",
-    "pitch_audio",
-    "f0_median",
-    "velocity",
-    "label",
-]
-RAW_F0_FIELDS = ["t", "f0", "label"]
-FILLED_F0_FIELDS = ["t", "f0"]
-SCORE_FIELDS = [
-    "start_meas",
-    "end_meas",
-    "duration_quarter",
-    "pitch",
-    "pitch_name",
-    "part",
-    "time_sig",
-    "articulation",
-    "expression",
-    "velocity",
-    "quarter_note_offset",
-    "quarter_note_BPM",
-    "midiChannel",
-]
-SCORE_PART_ORDER = {"S": 0, "A": 1, "T": 2, "B": 3}
-CHORD_FIELDS = ["start_meas", "end_meas", "chord"]
-ALIGNMENT_SCORE_FIELDS = [
-    "start_meas",
-    "end_meas",
-    "pitch_name",
-    "time_sig",
-    "part",
-]
-NUMERIC_ALIGNMENT_SCORE_FIELDS = [
-    "duration_quarter",
-    "pitch",
-]
-MEASURE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
-QUARTER_VALUE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
-F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
-A4_HZ = 442.0
-PITCH_NAME_PATTERN = re.compile(r"^([A-G])([#-]*)(-?\d+)$")
-PITCH_CLASSES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
-ACCIDENTALS = {"": 0, "#": 1, "##": 2, "-": -1, "--": -2}
+ALIGNMENT_FIELDS = spec.ALIGNMENT_FIELDS
+NOTES_FIELDS = spec.NOTES_FIELDS
+RAW_F0_FIELDS = spec.RAW_F0_FIELDS
+FILLED_F0_FIELDS = spec.FILLED_F0_FIELDS
+SCORE_FIELDS = spec.SCORE_FIELDS
+SCORE_PART_ORDER = spec.SCORE_PART_ORDER
+CHORD_FIELDS = spec.CHORD_FIELDS
+ALIGNMENT_SCORE_FIELDS = ["start_meas", "end_meas", "pitch_name", "time_sig", "part"]
+NUMERIC_ALIGNMENT_SCORE_FIELDS = ["duration_quarter", "pitch"]
+MEASURE_PATTERN = spec.MEASURE_PATTERN
+QUARTER_VALUE_PATTERN = spec.QUARTER_VALUE_PATTERN
+F0_MEDIAN_PATTERN = spec.F0_MEDIAN_PATTERN
 
 
 # Check for the environment variable CHORALEDB_PATH
@@ -126,32 +76,9 @@ def time_in_intervals(time, intervals):
     return index >= 0 and time <= intervals[index][1]
 
 
-def format_f0_median(values):
-    ordered = sorted(values)
-    assert ordered
-    middle = len(ordered) // 2
-    median = (
-        ordered[middle]
-        if len(ordered) % 2
-        else (ordered[middle - 1] + ordered[middle]) / Decimal(2)
-    )
-    return f"{median.quantize(Decimal('0.001'), rounding=ROUND_HALF_UP):.3f}"
-
-
-def pitch_audio_from_f0_median(f0_median):
-    midi = Decimal(12) * Decimal(math.log2(float(f0_median) / A4_HZ)) + Decimal(69)
-    return int(midi.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-
-
-def pitch_name_to_midi(pitch_name):
-    match = PITCH_NAME_PATTERN.fullmatch(pitch_name)
-    assert match, f"Unsupported pitch name: {pitch_name}"
-    pitch_class, accidental, octave = match.groups()
-    return (
-        (int(octave) + 1) * 12
-        + PITCH_CLASSES[pitch_class]
-        + ACCIDENTALS[accidental]
-    )
+format_f0_median = spec.f0_median_of_window
+pitch_audio_from_f0_median = spec.pitch_audio_from_f0_median
+pitch_name_to_midi = spec.pitch_name_to_midi
 
 
 """

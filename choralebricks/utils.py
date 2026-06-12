@@ -84,8 +84,11 @@ def read_notes(
 
 def read_sheet_music_csv(
     path_csv: Path,
-    A4: float=440.0
+    A4: float=442.0
 ) -> pd.DataFrame:
+    # A4 defaults to 442 Hz: the ensembles tuned to 442, and the audio-derived
+    # pitch_audio / f0_median columns use the same reference. Keeping the score
+    # `pitch_center_freq` on 442 makes score-vs-audio pitch comparisons unbiased.
     expected_columns = [
         "start_meas",
         "end_meas",

@@ -5,27 +5,27 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
-import math
 import shutil
 import xml.etree.ElementTree as ET
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from pathlib import Path
+
+from choralebricks import spec
+from choralebricks.spec import (
+    format_measure_value,
+    format_quarter_value,
+    velocity_from_scalar,
+)
 
 
 DEFAULT_SOURCE = Path(r"C:\datasets\choralebricks\1.0.1")
 DEFAULT_TARGET = Path(r"C:\datasets\choralebricks\1.1.0")
 CHORALEBRICKS_VERSION = "1.1.0"
-RELEASE_DATE = "10.06.2026"
-MEASURE_STEP = Decimal("0.001")
 QUARTER_VALUE_FIELDS = {
     "duration_quarter",
     "quarter_note_offset",
     "quarter_note_BPM",
 }
-QUARTER_VALUE_STEP = Decimal("0.001")
-F0_MEDIAN_STEP = Decimal("0.001")
-A4_HZ = 442.0
-VELOCITY_MAX = 127
 
 ALIGNMENT_1_0_FIELDS = [
     "t_start",
@@ -167,14 +167,6 @@ def sort_score_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     )
 
 
-def format_measure_value(value: str, *, exclusive_end: bool = False) -> str:
-    numeric_value = Decimal(value)
-    if exclusive_end and numeric_value == numeric_value.to_integral_value():
-        numeric_value -= MEASURE_STEP
-    sign = "-" if numeric_value < 0 else ""
-    return f"{sign}{abs(numeric_value):07.3f}"
-
-
 def format_measure_fields(
     row: dict[str, str],
     fields: list[str],
@@ -188,15 +180,6 @@ def format_measure_fields(
             exclusive_end=True,
         )
     return formatted
-
-
-def format_quarter_value(value: str) -> str:
-    numeric_value = Decimal(value).quantize(
-        QUARTER_VALUE_STEP,
-        rounding=ROUND_HALF_UP,
-    )
-    sign = "-" if numeric_value < 0 else ""
-    return f"{sign}{abs(numeric_value):07.3f}"
 
 
 def format_numeric_fields(
@@ -225,31 +208,6 @@ def time_in_note_intervals(
     intervals: list[tuple[float, float]],
 ) -> bool:
     return any(start <= time <= end for start, end in intervals)
-
-
-def format_f0_median(values: list[Decimal]) -> str:
-    if not values:
-        raise ValueError("Cannot calculate an F0 median from an empty window.")
-    ordered = sorted(values)
-    middle = len(ordered) // 2
-    if len(ordered) % 2:
-        median = ordered[middle]
-    else:
-        median = (ordered[middle - 1] + ordered[middle]) / Decimal(2)
-    return f"{median.quantize(F0_MEDIAN_STEP, rounding=ROUND_HALF_UP):.3f}"
-
-
-def pitch_audio_from_f0_median(f0_median: str) -> str:
-    midi = Decimal(12) * Decimal(math.log2(float(f0_median) / A4_HZ)) + Decimal(69)
-    return str(int(midi.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
-
-
-def velocity_from_scalar(value: str) -> str:
-    """Convert a [0, 1] loudness scalar (e.g. volume/level) to MIDI velocity."""
-    velocity = int(
-        (Decimal(value) * VELOCITY_MAX).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    )
-    return str(max(0, min(VELOCITY_MAX, velocity)))
 
 
 def recompute_note_f0_medians(
@@ -288,8 +246,8 @@ def recompute_note_f0_medians(
             raise ValueError(
                 f"{notes_path}:{row_number}: note interval contains no raw F0."
             )
-        median = format_f0_median(values[first:last])
-        pitch_audio = pitch_audio_from_f0_median(median)
+        median = spec.f0_median_of_window(values[first:last])
+        pitch_audio = str(spec.pitch_audio_from_f0_median(median))
         note["f0_median"] = median
         aligned["f0_median"] = median
         note["pitch_audio"] = pitch_audio
@@ -550,94 +508,6 @@ def migrate_filled_f0(path: Path) -> int:
     return len(rows)
 
 
-def update_changelog(path: Path, version: str) -> None:
-    old = path.read_text(encoding="utf-8")
-    old = old.replace(
-        "Vulpius_DieHelleSonnLeuchtJetztHerfuer siwtched with "
-        "Vulpius_ChristusDerIstMeinLeben",
-        "Vulpius_DieHelleSonnLeuchtJetztHerfuer switched with "
-        "Vulpius_ChristusDerIstMeinLeben",
-    )
-    section = (
-        f"## {version}\n\n"
-        f"- Release date: {RELEASE_DATE}\n"
-        "- Breaking release with no backwards compatibility for version 1.0.x\n"
-        "- Added VERSION file\n"
-        "- Changed all CSV files to semicolon separation\n"
-        "- Renamed and reordered alignment, notes, and score csv columns\n"
-        "- Sorted score rows by start_meas and SATB part order\n"
-        "- Dropped uninformative score columns (grace, midiProgram, pitchWritten, "
-        "pitchNameWritten)\n"
-        "- Added a seconds-based end column (start + duration) to the alignment "
-        "and notes csv files\n"
-        "- Added a velocity column to the alignment csv files (taken from the "
-        "paired note) and stored velocity as an integer in [0, 127], converted "
-        "from the former score volume and note level scalars via "
-        "round(scalar * 127)\n"
-        "- Recomputed note and alignment f0_median from raw F0 export in each "
-        "closed note interval, rounded to three decimals.\n"
-        "- Recomputed note and alignment pitch_audio from f0_median as "
-        "round(12*log2(f0_median / 442) + 69) (A4 = 442 Hz).\n"
-        "- Removed stale file "
-        "Gesius_DuFriedensfuerstHerrJesuChrist/annotations/03_eh_notes.csv\n"
-        "- Restricted non-zero (voiced) F0 values to be only allowed during note events\n"
-        "- Raw F0 csv rows outside note events are removed; filled F0 csv rows "
-        "outside note events are retained and their values are written as 0.0\n"
-        "- Transposed Crueger_AufAufMeinHerzMitFreuden.mei down by two semitones "
-        "to match the rest of the assets\n"
-        "- Standardized measure positions to fixed-width three-decimal formatting\n"
-        "- Standardized duration_quarter, quarter_note_offset, and "
-        "quarter_note_BPM to fixed-width three-decimal formatting\n"
-        "- Made end measure annotations with exact integer end positions exclusive, "
-        "e.g. 005.000 --> 004.999\n\n"
-        "### CSV column migration v1.0.1 -> v1.1.0\n\n"
-        "| CSV type | 1.0.1 columns | 1.1.0 columns |\n"
-        "| --- | --- | --- |\n"
-        "| Alignment | t_start, f0_mean, t_dur, pitch_audio, start_meas, "
-        "end_meas, duration_quarterLength, pitch_sheet_music, pitchName, "
-        "timeSig, part | start_meas, end_meas, duration_quarter, pitch, "
-        "pitch_name, part, time_sig, velocity, start, end, duration, "
-        "pitch_audio, f0_median |\n"
-        "| Notes | TIME, VALUE, DURATION, LEVEL, LABEL | start, end, duration, "
-        "pitch_audio, f0_median, velocity, label |\n"
-        "| Raw F0 | TIME, VALUE, LABEL | t, f0, label |\n"
-        "| Filled F0 | t, f0 | t, f0 |\n"
-        "| Score | start_meas, end_meas, duration_quarterLength, pitch, "
-        "pitchName, timeSig, articulation, expression, grace, part, "
-        "midiChannel, midiProgram, volume, pitchWritten, pitchNameWritten, "
-        "quarternoteoffset, quarterNoteBPM | start_meas, end_meas, "
-        "duration_quarter, pitch, pitch_name, part, time_sig, articulation, "
-        "expression, velocity, quarter_note_offset, quarter_note_BPM, "
-        "midiChannel |\n"
-        "| Chords | start_meas, end_meas, chord | "
-        "start_meas, end_meas, chord |\n\n"
-        "Notes to the csv changes:\n\n"
-        "- Alignment csv files: `f0_mean` is now called `f0_median` since it "
-        "represents the median value, not the mean, and is recomputed from raw "
-        "F0 csv inside the closed note interval. Renamed `t_start` -> `start`, "
-        "`t_dur` -> `duration`, `duration_quarterLength` -> `duration_quarter`, "
-        "`pitch_sheet_music` -> `pitch`, `pitchName` -> `pitch_name`, `timeSig` "
-        "-> `time_sig`. Added `end` (= `start` + `duration`) and `velocity` "
-        "(from the paired note).\n"
-        "- *_notes.csv: `TIME` -> `start`, `DURATION` -> `duration`, `LEVEL` -> "
-        "`velocity` (integer in [0, 127]), and `LABEL` -> `label`. Added `end` "
-        "(= `start` + `duration`) and `pitch_audio`, derived from `f0_median` "
-        "(A4 = 442 Hz). `f0_median` replaces `VALUE` and is recomputed from raw "
-        "F0 csv inside the closed note interval.\n"
-        "- Raw F0: `TIME` -> `t`, `VALUE` -> `f0`, and `LABEL` -> `label`.\n"
-        "- Score: `duration_quarterLength` -> `duration_quarter`, `pitchName` "
-        "-> `pitch_name`, `timeSig` -> `time_sig`, `volume` -> `velocity` "
-        "(integer in [0, 127]), `quarternoteoffset` -> `quarter_note_offset`, "
-        "`quarterNoteBPM` -> `quarter_note_BPM`. Dropped `grace`, `midiProgram`, "
-        "`pitchWritten`, and `pitchNameWritten`.\n\n"
-    )
-    heading = "# ChoraleBricks Changelog\n\n"
-    if not old.startswith(heading):
-        raise ValueError(f"{path}: unexpected changelog heading.")
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write((heading + section + old[len(heading):]).rstrip() + "\n")
-
-
 def migrate_release(source: Path, target: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(f"Source release not found: {source}.")
@@ -710,7 +580,6 @@ def migrate_release(source: Path, target: Path) -> None:
             if path not in migrated_paths:
                 migrate_semicolon_csv(path)
 
-        update_changelog(target / "CHANGELOG.md", version)
     except Exception:
         shutil.rmtree(target)
         raise

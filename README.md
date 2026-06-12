@@ -44,7 +44,7 @@ uv sync
 
 Download the corresponding audio files from Zenodo:
 
-[https://zenodo.org/records/15081741](https://zenodo.org/records/15463260)
+[https://zenodo.org/records/15463260](https://zenodo.org/records/15463260)
 
 ## Usage
 

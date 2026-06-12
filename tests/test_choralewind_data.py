@@ -1,22 +1,22 @@
 import csv
 import os
-import re
 import xml.etree.ElementTree as ET
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import pytest
 
+from choralebricks import spec
 from choralebricks.constants import INSTRUMENTS_WOODWIND, INSTRUMENT_STRINGS, Instrument
 from choralebricks.dataset import SongDB
 from choralebricks.utils import read_notes, read_sheet_music_csv
 
 
 CHORALEWIND_PATH = Path(os.getenv("CHORALEWIND_PATH", "ChoraleWind"))
-SECONDS_PATTERN = re.compile(r"^-?\d+\.\d{9}$")
-F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
-QUARTER_VALUE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
-INTEGER_PATTERN = re.compile(r"^-?\d+$")
+SECONDS_PATTERN = spec.SECONDS_PATTERN
+F0_MEDIAN_PATTERN = spec.F0_MEDIAN_PATTERN
+QUARTER_VALUE_PATTERN = spec.QUARTER_VALUE_PATTERN
+INTEGER_PATTERN = spec.INTEGER_PATTERN
 MSM_PARTS = {"11": "S", "12": "A", "21": "T", "22": "B"}
 
 pytestmark = pytest.mark.skipif(
