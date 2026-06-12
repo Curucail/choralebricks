@@ -17,6 +17,12 @@ DEFAULT_TARGET = Path(r"C:\datasets\choralebricks\1.1.0")
 CHORALEBRICKS_VERSION = "1.1.0"
 RELEASE_DATE = "10.06.2026"
 MEASURE_STEP = Decimal("0.001")
+QUARTER_VALUE_FIELDS = {
+    "duration_quarter",
+    "quarter_note_offset",
+    "quarter_note_BPM",
+}
+QUARTER_VALUE_STEP = Decimal("0.001")
 F0_MEDIAN_STEP = Decimal("0.001")
 A4_HZ = 442.0
 VELOCITY_MAX = 127
@@ -144,7 +150,7 @@ def write_dict_rows(
             lineterminator="\n",
         )
         writer.writeheader()
-        writer.writerows(format_measure_fields(row, fields) for row in rows)
+        writer.writerows(format_numeric_fields(row, fields) for row in rows)
 
 
 def normalize_row(row: dict[str, str], fields: list[str]) -> dict[str, str]:
@@ -181,6 +187,26 @@ def format_measure_fields(
             formatted["end_meas"],
             exclusive_end=True,
         )
+    return formatted
+
+
+def format_quarter_value(value: str) -> str:
+    numeric_value = Decimal(value).quantize(
+        QUARTER_VALUE_STEP,
+        rounding=ROUND_HALF_UP,
+    )
+    sign = "-" if numeric_value < 0 else ""
+    return f"{sign}{abs(numeric_value):07.3f}"
+
+
+def format_numeric_fields(
+    row: dict[str, str],
+    fields: list[str],
+) -> dict[str, str]:
+    formatted = format_measure_fields(row, fields)
+    for field in QUARTER_VALUE_FIELDS:
+        if field in fields and formatted.get(field, "") != "":
+            formatted[field] = format_quarter_value(formatted[field])
     return formatted
 
 
@@ -560,6 +586,8 @@ def update_changelog(path: Path, version: str) -> None:
         "- Transposed Crueger_AufAufMeinHerzMitFreuden.mei down by two semitones "
         "to match the rest of the assets\n"
         "- Standardized measure positions to fixed-width three-decimal formatting\n"
+        "- Standardized duration_quarter, quarter_note_offset, and "
+        "quarter_note_BPM to fixed-width three-decimal formatting\n"
         "- Made end measure annotations with exact integer end positions exclusive, "
         "e.g. 005.000 --> 004.999\n\n"
         "### CSV column migration v1.0.1 -> v1.1.0\n\n"

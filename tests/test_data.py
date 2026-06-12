@@ -71,6 +71,7 @@ NUMERIC_ALIGNMENT_SCORE_FIELDS = [
     "pitch",
 ]
 MEASURE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
+QUARTER_VALUE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
 F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
 A4_HZ = 442.0
 PITCH_NAME_PATTERN = re.compile(r"^([A-G])([#-]*)(-?\d+)$")
@@ -311,6 +312,30 @@ def test_measure_format_and_exclusive_ends(choralebricks):
             assert end != end.to_integral_value()
         affected_rows += len(rows)
     assert affected_rows == 11447
+
+
+def test_quarter_value_format(choralebricks):
+    score_rows = 0
+    alignment_rows = 0
+    for song in choralebricks.songs:
+        _, score = read_csv_rows(song.tracks[0].path_sheet_music_csv)
+        for row in score:
+            for field in (
+                "duration_quarter",
+                "quarter_note_offset",
+                "quarter_note_BPM",
+            ):
+                assert QUARTER_VALUE_PATTERN.fullmatch(row[field])
+        score_rows += len(score)
+
+        for path in (song.song_dir / "alignments").glob("*.csv"):
+            _, alignment = read_csv_rows(path)
+            for row in alignment:
+                assert QUARTER_VALUE_PATTERN.fullmatch(row["duration_quarter"])
+            alignment_rows += len(alignment)
+
+    assert score_rows == 1887
+    assert alignment_rows == 9097
 
 
 def test_score_pitch_names_match_midi(songs):

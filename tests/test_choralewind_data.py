@@ -15,6 +15,7 @@ from choralebricks.utils import read_notes, read_sheet_music_csv
 CHORALEWIND_PATH = Path(os.getenv("CHORALEWIND_PATH", "ChoraleWind"))
 SECONDS_PATTERN = re.compile(r"^-?\d+\.\d{9}$")
 F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
+QUARTER_VALUE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
 INTEGER_PATTERN = re.compile(r"^-?\d+$")
 MSM_PARTS = {"11": "S", "12": "A", "21": "T", "22": "B"}
 
@@ -146,6 +147,30 @@ def test_choralewind_numeric_format_and_expressive_velocities(choralewind):
                 assert F0_MEDIAN_PATTERN.fullmatch(note["f0_median"])
                 for field in ("pitch_audio", "f0_median", "velocity"):
                     assert note[field] == aligned[field]
+
+
+def test_choralewind_quarter_value_format(choralewind):
+    score_rows = 0
+    alignment_rows = 0
+    for song in choralewind.songs:
+        score = read_csv_rows(song.tracks[0].path_sheet_music_csv)
+        for row in score:
+            for field in (
+                "duration_quarter",
+                "quarter_note_offset",
+                "quarter_note_BPM",
+            ):
+                assert QUARTER_VALUE_PATTERN.fullmatch(row[field])
+        score_rows += len(score)
+
+        for path in (song.song_dir / "alignments").glob("*.csv"):
+            alignment = read_csv_rows(path)
+            for row in alignment:
+                assert QUARTER_VALUE_PATTERN.fullmatch(row["duration_quarter"])
+            alignment_rows += len(alignment)
+
+    assert score_rows == 65704
+    assert alignment_rows == 443360
 
 
 def test_choralewind_extra_instruments_are_woodwinds():
