@@ -46,9 +46,9 @@ ALIGNMENT_FIELDS = [
     "end",
     "duration",
     "pitch_audio",
-    "f0_median",
+    "f0_note",
 ]
-NOTES_FIELDS = ["start", "end", "duration", "pitch_audio", "f0_median", "velocity", "label"]
+NOTES_FIELDS = ["start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label"]
 RAW_F0_FIELDS = ["t", "f0", "label"]
 FILLED_F0_FIELDS = ["t", "f0"]
 CHORD_FIELDS = ["start_meas", "end_meas", "chord"]
@@ -77,7 +77,7 @@ A4_HZ = 442.0
 MEASURE_STEP = Decimal("0.001")
 QUARTER_VALUE_STEP = Decimal("0.001")
 SECONDS_STEP = Decimal("0.000000001")
-F0_MEDIAN_STEP = Decimal("0.001")
+F0_NOTE_STEP = Decimal("0.001")
 INTEGER_STEP = Decimal("1")
 MIDI_VELOCITY_MIN = 0
 MIDI_VELOCITY_MAX = 127
@@ -92,7 +92,7 @@ MEASURE_INTEGER_TOLERANCE = 1e-9
 MEASURE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
 QUARTER_VALUE_PATTERN = re.compile(r"^-?\d{3,}\.\d{3}$")
 SECONDS_PATTERN = re.compile(r"^-?\d+\.\d{9}$")
-F0_MEDIAN_PATTERN = re.compile(r"^\d+\.\d{3}$")
+F0_NOTE_PATTERN = re.compile(r"^\d+\.\d{3}$")
 INTEGER_PATTERN = re.compile(r"^-?\d+$")
 PITCH_NAME_PATTERN = re.compile(r"^([A-G])([#-]*)(-?\d+)$")
 _PITCH_CLASSES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
@@ -137,22 +137,9 @@ def format_seconds(value: Any) -> str:
     return format_decimal(quantize_decimal(value, SECONDS_STEP), 9)
 
 
-def format_f0_median(value: Any) -> str:
+def format_f0_note(value: Any) -> str:
     """Format an already-computed F0 value to three decimals."""
-    return format_decimal(quantize_decimal(value, F0_MEDIAN_STEP), 3)
-
-
-def f0_median_of_window(values: Iterable[Decimal]) -> str:
-    """Median of raw F0 ``Decimal`` values in a note window, formatted to 3 decimals."""
-    ordered = sorted(values)
-    if not ordered:
-        raise ValueError("Cannot calculate an F0 median from an empty window.")
-    middle = len(ordered) // 2
-    if len(ordered) % 2:
-        median = ordered[middle]
-    else:
-        median = (ordered[middle - 1] + ordered[middle]) / Decimal(2)
-    return f"{median.quantize(F0_MEDIAN_STEP, rounding=ROUND_HALF_UP):.3f}"
+    return format_decimal(quantize_decimal(value, F0_NOTE_STEP), 3)
 
 
 def midi_velocity(value: Any) -> int:
@@ -169,9 +156,9 @@ def velocity_from_scalar(value: Any) -> str:
 # --------------------------------------------------------------------------- #
 # Derived columns
 # --------------------------------------------------------------------------- #
-def pitch_audio_from_f0_median(f0_median: Any) -> int:
-    """Audio MIDI pitch ``round(12*log2(f0_median / 442) + 69)`` (A4 = 442 Hz)."""
-    midi = Decimal(12) * Decimal(math.log2(float(f0_median) / A4_HZ)) + Decimal(69)
+def pitch_audio_from_f0_note(f0_note: Any) -> int:
+    """Audio MIDI pitch ``round(12*log2(f0_note / 442) + 69)`` (A4 = 442 Hz)."""
+    midi = Decimal(12) * Decimal(math.log2(float(f0_note) / A4_HZ)) + Decimal(69)
     return int(midi.quantize(INTEGER_STEP, rounding=ROUND_HALF_UP))
 
 

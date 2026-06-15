@@ -88,7 +88,7 @@ def main():
         note = notes.iloc[i]
         assert row.pitch == note.pitch_audio
         assert note.pitch_audio == np.round(
-            choralebricks.utils.hz2midi(note.f0_median, f_ref=442)
+            choralebricks.utils.hz2midi(note.f0_note, f_ref=442)
         ).astype(int)
         chord = chord_seq.get_chord_at(row.start_meas)
         mask = (

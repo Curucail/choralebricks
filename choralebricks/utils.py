@@ -65,7 +65,7 @@ def read_notes(
     path_csv: Path,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    expected_columns = ["start", "end", "duration", "pitch_audio", "f0_median", "velocity", "label"]
+    expected_columns = ["start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
@@ -87,7 +87,7 @@ def read_sheet_music_csv(
     A4: float=442.0
 ) -> pd.DataFrame:
     # A4 defaults to 442 Hz: the ensembles tuned to 442, and the audio-derived
-    # pitch_audio / f0_median columns use the same reference. Keeping the score
+    # pitch_audio / f0_note columns use the same reference. Keeping the score
     # `pitch_center_freq` on 442 makes score-vs-audio pitch comparisons unbiased.
     expected_columns = [
         "start_meas",
