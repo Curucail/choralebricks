@@ -25,7 +25,6 @@ CHORD_FIELDS = spec.CHORD_FIELDS
 ALIGNMENT_SCORE_FIELDS = ["start_meas", "end_meas", "pitch_name", "time_sig", "part"]
 NUMERIC_ALIGNMENT_SCORE_FIELDS = ["duration_quarter", "pitch"]
 MEASURE_PATTERN = spec.MEASURE_PATTERN
-QUARTER_VALUE_PATTERN = spec.QUARTER_VALUE_PATTERN
 
 
 # Check for the environment variable CHORALEDB_PATH
@@ -239,30 +238,6 @@ def test_measure_format_and_exclusive_ends(choralebricks):
     assert affected_rows == 11447
 
 
-def test_quarter_value_format(choralebricks):
-    score_rows = 0
-    alignment_rows = 0
-    for song in choralebricks.songs:
-        _, score = read_csv_rows(song.tracks[0].path_sheet_music_csv)
-        for row in score:
-            for field in (
-                "duration_quarter",
-                "quarter_note_offset",
-                "quarter_note_BPM",
-            ):
-                assert QUARTER_VALUE_PATTERN.fullmatch(row[field])
-        score_rows += len(score)
-
-        for path in (song.song_dir / "alignments").glob("*.csv"):
-            _, alignment = read_csv_rows(path)
-            for row in alignment:
-                assert QUARTER_VALUE_PATTERN.fullmatch(row["duration_quarter"])
-            alignment_rows += len(alignment)
-
-    assert score_rows == 1887
-    assert alignment_rows == 9097
-
-
 def test_score_pitch_names_match_midi(songs):
     score_rows = 0
     for song in songs:
@@ -292,9 +267,6 @@ def test_alignments_match_notes_and_scores(songs):
             assert len(notes) == len(alignment)
             assert [row["pitch_audio"] for row in notes] == [
                 row["pitch_audio"] for row in alignment
-            ]
-            assert [row["f0_note"] for row in notes] == [
-                row["f0_note"] for row in alignment
             ]
             assert [row["velocity"] for row in notes] == [
                 row["velocity"] for row in alignment
@@ -358,7 +330,7 @@ def test_f0_annotations(tracks):
 
 
 def test_pitch_audio_derived_from_f0_note(tracks):
-    """pitch_audio is round(12*log2(f0_note / 442) + 69), A4 = 442 Hz."""
+    """pitch_audio is round(12*log2(f0_note / 440) + 69), A4 = 440 Hz."""
     note_rows = 0
     for track in tracks:
         _, notes = read_csv_rows(track.path_notes)

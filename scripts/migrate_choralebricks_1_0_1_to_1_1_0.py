@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from choralebricks.spec import velocity_from_scalar
+from choralebricks.spec import format_measure_value, velocity_from_scalar
 
 
 # Shared MEI music-theory lookups (used by the transposition helpers below).
@@ -35,6 +35,18 @@ def write_table(frame: pd.DataFrame, path: Path) -> None:
 def add_durations(starts, durations) -> list[str]:
     """Exact ``start + duration`` per row, kept as strings."""
     return [str(Decimal(start) + Decimal(dur)) for start, dur in zip(starts, durations)]
+
+
+def format_measure_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Format measure positions and make integer end positions exclusive."""
+    formatted = frame.copy()
+    if "start_meas" in formatted.columns:
+        formatted["start_meas"] = formatted["start_meas"].map(format_measure_value)
+    if "end_meas" in formatted.columns:
+        formatted["end_meas"] = formatted["end_meas"].map(
+            lambda value: format_measure_value(value, exclusive_end=True)
+        )
+    return formatted
 
 
 def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
@@ -94,7 +106,7 @@ def migrate_annotation_pair(notes_path: Path, alignment_path: Path) -> int:
         "f0_note": alignment["f0_mean"].to_numpy(),
     })
     write_table(new_notes, notes_path)
-    write_table(new_alignment, alignment_path)
+    write_table(format_measure_columns(new_alignment), alignment_path)
     return len(new_notes)
 
 
@@ -147,11 +159,11 @@ def migrate_semicolon_csv(path: Path) -> int:
             "quarter_note_BPM": rows["quarterNoteBPM"].to_numpy(),
             "midiChannel": rows["midiChannel"].to_numpy(),
         })
-        write_table(sort_score_rows(migrated), path)
+        write_table(sort_score_rows(format_measure_columns(migrated)), path)
     elif columns == score_1_1:
-        write_table(sort_score_rows(rows), path)
+        write_table(sort_score_rows(format_measure_columns(rows)), path)
     else:
-        write_table(rows, path)
+        write_table(format_measure_columns(rows), path)
     return len(rows)
 
 

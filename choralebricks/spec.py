@@ -73,7 +73,7 @@ QUARTER_VALUE_FIELDS = {"duration_quarter", "quarter_note_offset", "quarter_note
 # --------------------------------------------------------------------------- #
 # Numeric constants
 # --------------------------------------------------------------------------- #
-A4_HZ = 442.0
+A4_HZ = 440.0
 MEASURE_STEP = Decimal("0.001")
 QUARTER_VALUE_STEP = Decimal("0.001")
 SECONDS_STEP = Decimal("0.000000001")
@@ -157,7 +157,7 @@ def velocity_from_scalar(value: Any) -> str:
 # Derived columns
 # --------------------------------------------------------------------------- #
 def pitch_audio_from_f0_note(f0_note: Any) -> int:
-    """Audio MIDI pitch ``round(12*log2(f0_note / 442) + 69)`` (A4 = 442 Hz)."""
+    """Audio MIDI pitch ``round(12*log2(f0_note / 440) + 69)`` (A4 = 440 Hz)."""
     midi = Decimal(12) * Decimal(math.log2(float(f0_note) / A4_HZ)) + Decimal(69)
     return int(midi.quantize(INTEGER_STEP, rounding=ROUND_HALF_UP))
 
