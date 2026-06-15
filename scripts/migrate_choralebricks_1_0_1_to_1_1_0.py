@@ -3,259 +3,156 @@
 from __future__ import annotations
 
 import argparse
-import bisect
-import csv
 import shutil
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from pathlib import Path
 
-from choralebricks import spec
-from choralebricks.spec import (
-    format_measure_value,
-    format_quarter_value,
-    velocity_from_scalar,
-)
+import pandas as pd
+
+from choralebricks.spec import velocity_from_scalar
 
 
-DEFAULT_SOURCE = Path(r"C:\datasets\choralebricks\1.0.1")
-DEFAULT_TARGET = Path(r"C:\datasets\choralebricks\1.1.0")
-CHORALEBRICKS_VERSION = "1.1.0"
-QUARTER_VALUE_FIELDS = {
-    "duration_quarter",
-    "quarter_note_offset",
-    "quarter_note_BPM",
-}
-
-ALIGNMENT_1_0_FIELDS = [
-    "t_start",
-    "f0_mean",
-    "t_dur",
-    "pitch_audio",
-    "start_meas",
-    "end_meas",
-    "duration_quarterLength",
-    "pitch_sheet_music",
-    "pitchName",
-    "timeSig",
-    "part",
-]
-ALIGNMENT_1_1_FIELDS = [
-    "start_meas",
-    "end_meas",
-    "duration_quarter",
-    "pitch",
-    "pitch_name",
-    "part",
-    "time_sig",
-    "velocity",
-    "start",
-    "end",
-    "duration",
-    "pitch_audio",
-    "f0_median",
-]
-NOTES_1_0_FIELDS = ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]
-NOTES_1_1_FIELDS = [
-    "start",
-    "end",
-    "duration",
-    "pitch_audio",
-    "f0_median",
-    "velocity",
-    "label",
-]
-RAW_F0_1_0_FIELDS = ["TIME", "VALUE", "LABEL"]
-RAW_F0_1_1_FIELDS = ["t", "f0", "label"]
-FILLED_F0_FIELDS = ["t", "f0"]
-SCORE_1_0_FIELDS = [
-    "start_meas",
-    "end_meas",
-    "duration_quarterLength",
-    "pitch",
-    "pitchName",
-    "timeSig",
-    "articulation",
-    "expression",
-    "grace",
-    "part",
-    "midiChannel",
-    "midiProgram",
-    "volume",
-    "pitchWritten",
-    "pitchNameWritten",
-    "quarternoteoffset",
-    "quarterNoteBPM",
-]
-SCORE_1_1_FIELDS = [
-    "start_meas",
-    "end_meas",
-    "duration_quarter",
-    "pitch",
-    "pitch_name",
-    "part",
-    "time_sig",
-    "articulation",
-    "expression",
-    "velocity",
-    "quarter_note_offset",
-    "quarter_note_BPM",
-    "midiChannel",
-]
-SCORE_PART_ORDER = {"S": 0, "A": 1, "T": 2, "B": 3}
-ORPHAN_NOTES_RELATIVE_PATH = Path(
-    "01_AudioAndAnnotations"
-    "/Gesius_DuFriedensfuerstHerrJesuChrist"
-    "/annotations"
-    "/03_eh_notes.csv"
-)
-CRUEGER_SONG = "Crueger_AufAufMeinHerzMitFreuden"
-CRUEGER_MEI_NAME = f"{CRUEGER_SONG}.mei"
+# Shared MEI music-theory lookups (used by the transposition helpers below).
 MEI_NAMESPACE = "http://www.music-encoding.org/ns/mei"
 MEI_TAG = f"{{{MEI_NAMESPACE}}}"
 PITCH_CLASSES = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
-PREVIOUS_DIATONIC = {
-    "c": "b",
-    "d": "c",
-    "e": "d",
-    "f": "e",
-    "g": "f",
-    "a": "g",
-    "b": "a",
-}
 ACCIDENTAL_TO_OFFSET = {"ff": -2, "f": -1, "n": 0, "s": 1, "ss": 2}
 OFFSET_TO_ACCIDENTAL = {value: key for key, value in ACCIDENTAL_TO_OFFSET.items()}
-SOURCE_KEY_OFFSETS = {"f": 1, "c": 1}
 
 
-def read_dict_rows(
-    path: Path,
-    delimiter: str,
-) -> tuple[list[str], list[dict[str, str]]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter=delimiter)
-        return list(reader.fieldnames or []), list(reader)
+def read_table(path: Path, sep: str) -> pd.DataFrame:
+    """Read a CSV as all-string columns, preserving values and empty cells verbatim."""
+    return pd.read_csv(
+        path, sep=sep, dtype=str, keep_default_na=False, encoding="utf-8-sig"
+    ).fillna("")
 
 
-def write_dict_rows(
-    path: Path,
-    fields: list[str],
-    rows: list[dict[str, str]],
-) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=fields,
-            delimiter=";",
-            lineterminator="\n",
-        )
-        writer.writeheader()
-        writer.writerows(format_numeric_fields(row, fields) for row in rows)
+def write_table(frame: pd.DataFrame, path: Path) -> None:
+    frame.to_csv(path, sep=";", index=False, lineterminator="\n", encoding="utf-8")
 
 
-def normalize_row(row: dict[str, str], fields: list[str]) -> dict[str, str]:
-    return {field: row.get(field) or "" for field in fields}
+def add_durations(starts, durations) -> list[str]:
+    """Exact ``start + duration`` per row, kept as strings."""
+    return [str(Decimal(start) + Decimal(dur)) for start, dur in zip(starts, durations)]
 
 
-def sort_score_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    return sorted(
-        rows,
-        key=lambda row: (
-            Decimal(row["start_meas"]),
-            SCORE_PART_ORDER[row["part"]],
-        ),
-    )
+def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    part_order = {"S": 0, "A": 1, "T": 2, "B": 3}
+    keyed = frame.assign(
+        _meas=frame["start_meas"].map(Decimal),
+        _part=frame["part"].map(part_order),
+    ).sort_values(["_meas", "_part"], kind="stable")
+    return keyed.drop(columns=["_meas", "_part"])
 
 
-def format_measure_fields(
-    row: dict[str, str],
-    fields: list[str],
-) -> dict[str, str]:
-    formatted = dict(row)
-    if "start_meas" in fields and formatted.get("start_meas", "") != "":
-        formatted["start_meas"] = format_measure_value(formatted["start_meas"])
-    if "end_meas" in fields and formatted.get("end_meas", "") != "":
-        formatted["end_meas"] = format_measure_value(
-            formatted["end_meas"],
-            exclusive_end=True,
-        )
-    return formatted
-
-
-def format_numeric_fields(
-    row: dict[str, str],
-    fields: list[str],
-) -> dict[str, str]:
-    formatted = format_measure_fields(row, fields)
-    for field in QUARTER_VALUE_FIELDS:
-        if field in fields and formatted.get(field, "") != "":
-            formatted[field] = format_quarter_value(formatted[field])
-    return formatted
-
-
-def note_intervals(notes: list[dict[str, str]]) -> list[tuple[float, float]]:
-    return [
-        (
-            float(note["start"]),
-            float(note["start"]) + float(note["duration"]),
-        )
-        for note in notes
-    ]
-
-
-def time_in_note_intervals(
-    time: float,
-    intervals: list[tuple[float, float]],
-) -> bool:
-    return any(start <= time <= end for start, end in intervals)
-
-
-def recompute_note_f0_medians(
-    notes_path: Path,
-    alignment_path: Path,
-    raw_path: Path,
-) -> int:
-    notes_header, notes = read_dict_rows(notes_path, ";")
-    alignment_header, alignment = read_dict_rows(alignment_path, ";")
-    raw_header, raw = read_dict_rows(raw_path, ";")
-    if notes_header != NOTES_1_1_FIELDS:
-        raise ValueError(f"{notes_path}: unexpected notes header {notes_header}.")
-    if alignment_header != ALIGNMENT_1_1_FIELDS:
+def migrate_annotation_pair(notes_path: Path, alignment_path: Path) -> int:
+    notes = read_table(notes_path, ",")
+    alignment = read_table(alignment_path, ";")
+    if list(notes.columns) != ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]:
+        raise ValueError(f"{notes_path}: unexpected notes header {list(notes.columns)}.")
+    if list(alignment.columns) != [
+        "t_start", "f0_mean", "t_dur", "pitch_audio", "start_meas", "end_meas",
+        "duration_quarterLength", "pitch_sheet_music", "pitchName", "timeSig", "part",
+    ]:
         raise ValueError(
-            f"{alignment_path}: unexpected alignment header {alignment_header}."
+            f"{alignment_path}: unexpected alignment header {list(alignment.columns)}."
         )
-    if raw_header != RAW_F0_1_1_FIELDS:
-        raise ValueError(f"{raw_path}: unexpected raw F0 header {raw_header}.")
     if len(notes) != len(alignment):
-        raise ValueError(f"{notes_path}: alignment row count mismatch.")
+        raise ValueError(
+            f"{notes_path}: {len(notes)} notes do not match "
+            f"{len(alignment)} alignment rows."
+        )
 
-    timestamps = [Decimal(row["t"]) for row in raw]
-    if timestamps != sorted(timestamps):
-        raise ValueError(f"{raw_path}: raw F0 timestamps are not sorted.")
-    values = [Decimal(row["f0"]) for row in raw]
+    velocity = notes["LEVEL"].map(velocity_from_scalar).to_numpy()
+    # The 1.1 audio columns rename existing 1.0.1 values: keep the measured F0
+    # (notes ``VALUE`` / alignment ``f0_mean``) and the audio pitch verbatim.
+    pitch_audio = alignment["pitch_audio"].to_numpy()
 
-    for row_number, (note, aligned) in enumerate(
-        zip(notes, alignment),
-        start=2,
-    ):
-        start = Decimal(note["start"])
-        end = start + Decimal(note["duration"])
-        first = bisect.bisect_left(timestamps, start)
-        last = bisect.bisect_right(timestamps, end)
-        if first == last:
-            raise ValueError(
-                f"{notes_path}:{row_number}: note interval contains no raw F0."
-            )
-        median = spec.f0_median_of_window(values[first:last])
-        pitch_audio = str(spec.pitch_audio_from_f0_median(median))
-        note["f0_median"] = median
-        aligned["f0_median"] = median
-        note["pitch_audio"] = pitch_audio
-        aligned["pitch_audio"] = pitch_audio
+    new_notes = pd.DataFrame({
+        "start": notes["TIME"].to_numpy(),
+        "end": add_durations(notes["TIME"], notes["DURATION"]),
+        "duration": notes["DURATION"].to_numpy(),
+        "pitch_audio": pitch_audio,
+        "f0_note": notes["VALUE"].to_numpy(),
+        "velocity": velocity,
+        "label": notes["LABEL"].to_numpy(),
+    })
+    new_alignment = pd.DataFrame({
+        "start_meas": alignment["start_meas"].to_numpy(),
+        "end_meas": alignment["end_meas"].to_numpy(),
+        "duration_quarter": alignment["duration_quarterLength"].to_numpy(),
+        "pitch": alignment["pitch_sheet_music"].to_numpy(),
+        "pitch_name": alignment["pitchName"].to_numpy(),
+        "part": alignment["part"].to_numpy(),
+        "time_sig": alignment["timeSig"].to_numpy(),
+        "velocity": velocity,
+        "start": alignment["t_start"].to_numpy(),
+        "end": add_durations(alignment["t_start"], alignment["t_dur"]),
+        "duration": alignment["t_dur"].to_numpy(),
+        "pitch_audio": pitch_audio,
+        "f0_note": alignment["f0_mean"].to_numpy(),
+    })
+    write_table(new_notes, notes_path)
+    write_table(new_alignment, alignment_path)
+    return len(new_notes)
 
-    write_dict_rows(notes_path, NOTES_1_1_FIELDS, notes)
-    write_dict_rows(alignment_path, ALIGNMENT_1_1_FIELDS, alignment)
-    return len(notes)
+
+def migrate_raw_f0(path: Path) -> int:
+    raw = read_table(path, ",")
+    if list(raw.columns) != ["TIME", "VALUE", "LABEL"]:
+        raise ValueError(f"{path}: unexpected raw F0 header {list(raw.columns)}.")
+    renamed = raw.rename(columns={"TIME": "t", "VALUE": "f0", "LABEL": "label"})
+    write_table(renamed, path)
+    return len(renamed)
+
+
+def migrate_filled_f0(path: Path) -> int:
+    filled = read_table(path, ",")
+    if list(filled.columns) != ["t", "f0"]:
+        raise ValueError(f"{path}: unexpected filled F0 header {list(filled.columns)}.")
+    write_table(filled, path)
+    return len(filled)
+
+
+def migrate_semicolon_csv(path: Path) -> int:
+    rows = read_table(path, ";")
+    if rows.shape[1] == 1 and "," in rows.columns[0]:
+        rows = read_table(path, ",")
+    columns = list(rows.columns)
+    score_1_0 = [
+        "start_meas", "end_meas", "duration_quarterLength", "pitch", "pitchName",
+        "timeSig", "articulation", "expression", "grace", "part", "midiChannel",
+        "midiProgram", "volume", "pitchWritten", "pitchNameWritten",
+        "quarternoteoffset", "quarterNoteBPM",
+    ]
+    score_1_1 = [
+        "start_meas", "end_meas", "duration_quarter", "pitch", "pitch_name", "part",
+        "time_sig", "articulation", "expression", "velocity", "quarter_note_offset",
+        "quarter_note_BPM", "midiChannel",
+    ]
+    if columns == score_1_0:
+        migrated = pd.DataFrame({
+            "start_meas": rows["start_meas"].to_numpy(),
+            "end_meas": rows["end_meas"].to_numpy(),
+            "duration_quarter": rows["duration_quarterLength"].to_numpy(),
+            "pitch": rows["pitch"].to_numpy(),
+            "pitch_name": rows["pitchName"].to_numpy(),
+            "part": rows["part"].to_numpy(),
+            "time_sig": rows["timeSig"].to_numpy(),
+            "articulation": rows["articulation"].to_numpy(),
+            "expression": rows["expression"].to_numpy(),
+            "velocity": rows["volume"].map(velocity_from_scalar).to_numpy(),
+            "quarter_note_offset": rows["quarternoteoffset"].to_numpy(),
+            "quarter_note_BPM": rows["quarterNoteBPM"].to_numpy(),
+            "midiChannel": rows["midiChannel"].to_numpy(),
+        })
+        write_table(sort_score_rows(migrated), path)
+    elif columns == score_1_1:
+        write_table(sort_score_rows(rows), path)
+    else:
+        write_table(rows, path)
+    return len(rows)
 
 
 def clean_f0_annotations(
@@ -263,38 +160,33 @@ def clean_f0_annotations(
     raw_path: Path,
     filled_path: Path,
 ) -> tuple[int, int]:
-    notes_header, notes = read_dict_rows(notes_path, ";")
-    raw_header, raw = read_dict_rows(raw_path, ";")
-    filled_header, filled = read_dict_rows(filled_path, ";")
-    if notes_header != NOTES_1_1_FIELDS:
-        raise ValueError(f"{notes_path}: unexpected notes header {notes_header}.")
-    if raw_header != RAW_F0_1_1_FIELDS:
-        raise ValueError(f"{raw_path}: unexpected raw F0 header {raw_header}.")
-    if filled_header != FILLED_F0_FIELDS:
-        raise ValueError(f"{filled_path}: unexpected filled F0 header {filled_header}.")
+    notes = read_table(notes_path, ";")
+    raw = read_table(raw_path, ";")
+    filled = read_table(filled_path, ";")
+    if list(notes.columns) != [
+        "start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label",
+    ]:
+        raise ValueError(f"{notes_path}: unexpected notes header {list(notes.columns)}.")
+    if list(raw.columns) != ["t", "f0", "label"]:
+        raise ValueError(f"{raw_path}: unexpected raw F0 header {list(raw.columns)}.")
+    if list(filled.columns) != ["t", "f0"]:
+        raise ValueError(f"{filled_path}: unexpected filled F0 header {list(filled.columns)}.")
 
-    intervals = note_intervals(notes)
-    cleaned_raw = [
-        row
-        for row in raw
-        if float(row["f0"]) != 0
-        and time_in_note_intervals(float(row["t"]), intervals)
-    ]
-    cleaned_filled = []
-    zeroed = 0
-    for row in filled:
-        cleaned = normalize_row(row, FILLED_F0_FIELDS)
-        if (
-            float(cleaned["f0"]) != 0
-            and not time_in_note_intervals(float(cleaned["t"]), intervals)
-        ):
-            cleaned["f0"] = "0.0"
-            zeroed += 1
-        cleaned_filled.append(cleaned)
+    starts = notes["start"].astype(float).to_numpy()
+    ends = starts + notes["duration"].astype(float).to_numpy()
 
-    removed = len(raw) - len(cleaned_raw)
-    write_dict_rows(raw_path, RAW_F0_1_1_FIELDS, cleaned_raw)
-    write_dict_rows(filled_path, FILLED_F0_FIELDS, cleaned_filled)
+    def in_any_note(times: pd.Series) -> pd.Series:
+        flags = [bool(((starts <= t) & (t <= ends)).any()) for t in times.astype(float)]
+        return pd.Series(flags, index=times.index)
+
+    raw_keep = (raw["f0"].astype(float) != 0) & in_any_note(raw["t"])
+    removed = int((~raw_keep).sum())
+    write_table(raw[raw_keep], raw_path)
+
+    outside = (filled["f0"].astype(float) != 0) & ~in_any_note(filled["t"])
+    zeroed = int(outside.sum())
+    filled.loc[outside, "f0"] = "0.0"
+    write_table(filled, filled_path)
     return removed, zeroed
 
 
@@ -310,7 +202,10 @@ def mei_note_midi(note: ET.Element, key_offsets: dict[str, int]) -> int:
 
 
 def target_spelling(source_pname: str, target_midi: int) -> tuple[str, int, int]:
-    pname = PREVIOUS_DIATONIC[source_pname]
+    previous_diatonic = {
+        "c": "b", "d": "c", "e": "d", "f": "e", "g": "f", "a": "g", "b": "a",
+    }
+    pname = previous_diatonic[source_pname]
     candidates = []
     for octave in range(0, 9):
         natural_midi = (octave + 1) * 12 + PITCH_CLASSES[pname]
@@ -324,6 +219,7 @@ def target_spelling(source_pname: str, target_midi: int) -> tuple[str, int, int]
 
 
 def transpose_crueger_mei(mei_path: Path) -> int:
+    source_key_offsets = {"f": 1, "c": 1}
     parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
     tree = ET.parse(mei_path, parser=parser)
     root = tree.getroot()
@@ -350,7 +246,7 @@ def transpose_crueger_mei(mei_path: Path) -> int:
     for note in root.iter(f"{MEI_TAG}note"):
         if "pname" not in note.attrib or "oct" not in note.attrib:
             continue
-        source_midi = mei_note_midi(note, SOURCE_KEY_OFFSETS)
+        source_midi = mei_note_midi(note, source_key_offsets)
         target_midi = source_midi - 2
         pname, octave, alteration = target_spelling(
             note.attrib["pname"],
@@ -385,147 +281,28 @@ def transpose_crueger_mei(mei_path: Path) -> int:
     return changed
 
 
-def migrate_annotation_pair(notes_path: Path, alignment_path: Path) -> int:
-    notes_header, old_notes = read_dict_rows(notes_path, ",")
-    alignment_header, old_alignment = read_dict_rows(alignment_path, ";")
-    if notes_header != NOTES_1_0_FIELDS:
-        raise ValueError(f"{notes_path}: unexpected notes header {notes_header}.")
-    if alignment_header != ALIGNMENT_1_0_FIELDS:
-        raise ValueError(
-            f"{alignment_path}: unexpected alignment header {alignment_header}."
-        )
-    if len(old_notes) != len(old_alignment):
-        raise ValueError(
-            f"{notes_path}: {len(old_notes)} notes do not match "
-            f"{len(old_alignment)} alignment rows."
-        )
-
-    new_notes: list[dict[str, str]] = []
-    new_alignment: list[dict[str, str]] = []
-    for note, alignment in zip(old_notes, old_alignment):
-        velocity = velocity_from_scalar(note["LEVEL"])
-        note_end = str(Decimal(note["TIME"]) + Decimal(note["DURATION"]))
-        alignment_end = str(
-            Decimal(alignment["t_start"]) + Decimal(alignment["t_dur"])
-        )
-        new_notes.append(
-            {
-                "velocity": velocity,
-                "start": note["TIME"],
-                "end": note_end,
-                "duration": note["DURATION"],
-                "pitch_audio": "",
-                "f0_median": "",
-                "label": note.get("LABEL") or "",
-            }
-        )
-        new_alignment.append(
-            {
-                "start_meas": alignment["start_meas"],
-                "end_meas": alignment["end_meas"],
-                "duration_quarter": alignment["duration_quarterLength"],
-                "pitch": alignment["pitch_sheet_music"],
-                "pitch_name": alignment["pitchName"],
-                "part": alignment["part"],
-                "time_sig": alignment["timeSig"],
-                "velocity": velocity,
-                "start": alignment["t_start"],
-                "end": alignment_end,
-                "duration": alignment["t_dur"],
-                "pitch_audio": "",
-                "f0_median": "",
-            }
-        )
-
-    write_dict_rows(notes_path, NOTES_1_1_FIELDS, new_notes)
-    write_dict_rows(alignment_path, ALIGNMENT_1_1_FIELDS, new_alignment)
-    return len(new_notes)
-
-
-def migrate_raw_f0(path: Path) -> int:
-    header, rows = read_dict_rows(path, ",")
-    if header != RAW_F0_1_0_FIELDS:
-        raise ValueError(f"{path}: unexpected raw F0 header {header}.")
-    migrated = [
-        {
-            "t": row["TIME"],
-            "f0": row["VALUE"],
-            "label": row.get("LABEL") or "",
-        }
-        for row in rows
-    ]
-    write_dict_rows(path, RAW_F0_1_1_FIELDS, migrated)
-    return len(migrated)
-
-
-def migrate_semicolon_csv(path: Path) -> int:
-    header, rows = read_dict_rows(path, ";")
-    if len(header) == 1 and "," in header[0]:
-        header, rows = read_dict_rows(path, ",")
-    if header == SCORE_1_0_FIELDS:
-        migrated = []
-        for row in rows:
-            old = normalize_row(row, SCORE_1_0_FIELDS)
-            migrated.append(
-                {
-                    "start_meas": old["start_meas"],
-                    "end_meas": old["end_meas"],
-                    "duration_quarter": old["duration_quarterLength"],
-                    "pitch": old["pitch"],
-                    "pitch_name": old["pitchName"],
-                    "part": old["part"],
-                    "time_sig": old["timeSig"],
-                    "articulation": old["articulation"],
-                    "expression": old["expression"],
-                    "velocity": velocity_from_scalar(old["volume"]),
-                    "quarter_note_offset": old["quarternoteoffset"],
-                    "quarter_note_BPM": old["quarterNoteBPM"],
-                    "midiChannel": old["midiChannel"],
-                }
-            )
-        write_dict_rows(path, SCORE_1_1_FIELDS, sort_score_rows(migrated))
-    elif header == SCORE_1_1_FIELDS:
-        normalized = [normalize_row(row, SCORE_1_1_FIELDS) for row in rows]
-        write_dict_rows(path, SCORE_1_1_FIELDS, sort_score_rows(normalized))
-    else:
-        write_dict_rows(
-            path,
-            header,
-            [normalize_row(row, header) for row in rows],
-        )
-    return len(rows)
-
-
-def migrate_filled_f0(path: Path) -> int:
-    header, rows = read_dict_rows(path, ",")
-    if header != FILLED_F0_FIELDS:
-        raise ValueError(f"{path}: unexpected filled F0 header {header}.")
-    write_dict_rows(
-        path,
-        FILLED_F0_FIELDS,
-        [normalize_row(row, FILLED_F0_FIELDS) for row in rows],
-    )
-    return len(rows)
-
-
 def migrate_release(source: Path, target: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(f"Source release not found: {source}.")
     if target.exists():
         raise FileExistsError(f"Target already exists: {target}.")
 
-    version = CHORALEBRICKS_VERSION
-
     shutil.copytree(source, target, copy_function=shutil.copy2)
     try:
-        orphan = target / ORPHAN_NOTES_RELATIVE_PATH
+        # There is a stale file in v1.0.1 which was a overseen copy/rename artifact of 03_bcl_notes.csv in v1.0.1
+        # It will be removed for v1.1.0
+        orphan = target / (
+            "01_AudioAndAnnotations/Gesius_DuFriedensfuerstHerrJesuChrist"
+            "/annotations/03_eh_notes.csv"
+        )
         if not orphan.is_file():
             raise FileNotFoundError(f"Expected stale orphan file not found: {orphan}.")
         orphan.unlink()
 
         audio_root = target / "01_AudioAndAnnotations"
         for component in (audio_root, target / "02_ConductingVideos"):
-            (component / "VERSION").write_text(f"{version}\n", encoding="utf-8")
+            # Mandatory VERSION tagging starting from v1.1.0
+            (component / "VERSION").write_text("1.1.0\n", encoding="utf-8")
 
         alignment_paths = sorted(
             path
@@ -549,8 +326,10 @@ def migrate_release(source: Path, target: Path) -> None:
 
         for path in sorted(audio_root.rglob("*_f0.csv")):
             if not path.name.endswith("_f0_filled.csv"):
+                # Only rename columns, 
                 migrate_raw_f0(path)
         for path in sorted(audio_root.rglob("*_f0_filled.csv")):
+            # Only rename columns
             migrate_filled_f0(path)
 
         for notes_path in notes_paths:
@@ -561,23 +340,18 @@ def migrate_release(source: Path, target: Path) -> None:
                 raw_path,
                 notes_path.with_name(f"{stem}_f0_filled.csv"),
             )
-            recompute_note_f0_medians(
-                notes_path,
-                notes_path.parent.parent
-                / "alignments"
-                / notes_path.name.replace("_notes.csv", ".csv"),
-                raw_path,
-            )
 
-        transpose_crueger_mei(
-            audio_root / CRUEGER_SONG / CRUEGER_MEI_NAME
-        )
+        # The piece Crueger_AufAufMeinHerzMitFreuden is notated in D major but should be in C major to match the rest of the dataset. 
+        # We transpose it down 2 semitones by editing the MEI file.
+        crueger = "Crueger_AufAufMeinHerzMitFreuden"
+        transpose_crueger_mei(audio_root / crueger / f"{crueger}.mei")
 
         migrated_paths = set(notes_paths) | set(alignment_paths)
         migrated_paths.update(audio_root.rglob("*_f0.csv"))
         migrated_paths.update(audio_root.rglob("*_f0_filled.csv"))
         for path in sorted(target.rglob("*.csv")):
             if path not in migrated_paths:
+                # All csv files will be semicolon separated starting from v1.1.0
                 migrate_semicolon_csv(path)
 
     except Exception:
@@ -587,8 +361,12 @@ def migrate_release(source: Path, target: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
-    parser.add_argument("--target", type=Path, default=DEFAULT_TARGET)
+    parser.add_argument(
+        "--source", type=Path, default=Path(r"C:\datasets\choralebricks\1.0.1")
+    )
+    parser.add_argument(
+        "--target", type=Path, default=Path(r"C:\datasets\choralebricks\1.1.0")
+    )
     return parser.parse_args()
 
 

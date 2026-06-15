@@ -26,7 +26,6 @@ ALIGNMENT_SCORE_FIELDS = ["start_meas", "end_meas", "pitch_name", "time_sig", "p
 NUMERIC_ALIGNMENT_SCORE_FIELDS = ["duration_quarter", "pitch"]
 MEASURE_PATTERN = spec.MEASURE_PATTERN
 QUARTER_VALUE_PATTERN = spec.QUARTER_VALUE_PATTERN
-F0_MEDIAN_PATTERN = spec.F0_MEDIAN_PATTERN
 
 
 # Check for the environment variable CHORALEDB_PATH
@@ -76,8 +75,7 @@ def time_in_intervals(time, intervals):
     return index >= 0 and time <= intervals[index][1]
 
 
-format_f0_median = spec.f0_median_of_window
-pitch_audio_from_f0_median = spec.pitch_audio_from_f0_median
+pitch_audio_from_f0_note = spec.pitch_audio_from_f0_note
 pitch_name_to_midi = spec.pitch_name_to_midi
 
 
@@ -188,7 +186,7 @@ def test_csv_headers(track):
     f0_head = read_f0_sv(path_sv_f0, rename_cols=False).columns if track.path_f0 else []
     notes_head = read_notes(track.path_notes, rename_cols=False).columns if track.path_notes else []
     assert list(f0_head) == ["t", "f0", "label"]
-    assert list(notes_head) == ["start", "end", "duration", "pitch_audio", "f0_median", "velocity", "label"]
+    assert list(notes_head) == ["start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label"]
 
 
 def test_all_csv_files_are_semicolon_delimited(choralebricks):
@@ -295,8 +293,8 @@ def test_alignments_match_notes_and_scores(songs):
             assert [row["pitch_audio"] for row in notes] == [
                 row["pitch_audio"] for row in alignment
             ]
-            assert [row["f0_median"] for row in notes] == [
-                row["f0_median"] for row in alignment
+            assert [row["f0_note"] for row in notes] == [
+                row["f0_note"] for row in alignment
             ]
             assert [row["velocity"] for row in notes] == [
                 row["velocity"] for row in alignment
@@ -323,7 +321,7 @@ def test_alignments_match_notes_and_scores(songs):
     assert note_rows == 9097
 
 
-def test_f0_annotations_and_note_medians(tracks):
+def test_f0_annotations(tracks):
     note_rows = 0
     for track in tracks:
         _, notes = read_csv_rows(track.path_notes)
@@ -355,32 +353,23 @@ def test_f0_annotations_and_note_medians(tracks):
             else:
                 assert time_in_intervals(time, intervals)
 
-        for note in notes:
-            median = note["f0_median"]
-            assert F0_MEDIAN_PATTERN.fullmatch(median)
-            assert Decimal(median) > 0
-            start = Decimal(note["start"])
-            end = start + Decimal(note["duration"])
-            first = bisect.bisect_left(raw_times, start)
-            last = bisect.bisect_right(raw_times, end)
-            assert median == format_f0_median(raw_values[first:last])
         note_rows += len(notes)
     assert note_rows == 9097
 
 
-def test_pitch_audio_derived_from_f0_median(tracks):
-    """pitch_audio is round(12*log2(f0_median / 442) + 69), A4 = 442 Hz."""
+def test_pitch_audio_derived_from_f0_note(tracks):
+    """pitch_audio is round(12*log2(f0_note / 442) + 69), A4 = 442 Hz."""
     note_rows = 0
     for track in tracks:
         _, notes = read_csv_rows(track.path_notes)
         _, alignment = read_csv_rows(alignment_path(track))
         for note in notes:
-            assert int(note["pitch_audio"]) == pitch_audio_from_f0_median(
-                note["f0_median"]
+            assert int(note["pitch_audio"]) == pitch_audio_from_f0_note(
+                note["f0_note"]
             )
         for aligned in alignment:
-            assert int(aligned["pitch_audio"]) == pitch_audio_from_f0_median(
-                aligned["f0_median"]
+            assert int(aligned["pitch_audio"]) == pitch_audio_from_f0_note(
+                aligned["f0_note"]
             )
         note_rows += len(notes)
     assert note_rows == 9097

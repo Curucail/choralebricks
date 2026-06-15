@@ -14,7 +14,7 @@ from choralebricks.utils import read_notes, read_sheet_music_csv
 
 CHORALEWIND_PATH = Path(os.getenv("CHORALEWIND_PATH", "ChoraleWind"))
 SECONDS_PATTERN = spec.SECONDS_PATTERN
-F0_MEDIAN_PATTERN = spec.F0_MEDIAN_PATTERN
+F0_NOTE_PATTERN = spec.F0_NOTE_PATTERN
 QUARTER_VALUE_PATTERN = spec.QUARTER_VALUE_PATTERN
 INTEGER_PATTERN = spec.INTEGER_PATTERN
 MSM_PARTS = {"11": "S", "12": "A", "21": "T", "22": "B"}
@@ -72,11 +72,11 @@ def test_choralewind_notes_schema(tracks):
         "end",
         "duration",
         "pitch_audio",
-        "f0_median",
+        "f0_note",
         "velocity",
         "label",
     ]
-    assert list(notes.columns) == ["start", "end", "duration", "pitch_audio", "f0_median"]
+    assert list(notes.columns) == ["start", "end", "duration", "pitch_audio", "f0_note"]
 
 
 def test_choralewind_score_schema(tracks):
@@ -144,8 +144,8 @@ def test_choralewind_numeric_format_and_expressive_velocities(choralewind):
                     note["end"]
                 )
                 assert INTEGER_PATTERN.fullmatch(note["pitch_audio"])
-                assert F0_MEDIAN_PATTERN.fullmatch(note["f0_median"])
-                for field in ("pitch_audio", "f0_median", "velocity"):
+                assert F0_NOTE_PATTERN.fullmatch(note["f0_note"])
+                for field in ("pitch_audio", "f0_note", "velocity"):
                     assert note[field] == aligned[field]
 
 
