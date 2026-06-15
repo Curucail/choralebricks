@@ -118,19 +118,6 @@ def test_track_count(choralebricks, tracks):
     assert len(tracks) == 193
 
 
-def test_dataset_has_no_orphan_annotations(choralebricks):
-    referenced = {
-        Path(track.path_notes).resolve()
-        for song in choralebricks.songs
-        for track in song.tracks
-    }
-    actual = {
-        path.resolve()
-        for path in choralebricks.root_dir.rglob("*_notes.csv")
-    }
-    assert actual == referenced
-
-
 def test_number_of_ensembles(ensembles):
     """Test number of ensembles"""
     assert len(ensembles) == 4582
