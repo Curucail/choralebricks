@@ -22,6 +22,38 @@ MEI_TAG = f"{{{MEI_NAMESPACE}}}"
 PITCH_CLASSES = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 ACCIDENTAL_TO_OFFSET = {"ff": -2, "f": -1, "n": 0, "s": 1, "ss": 2}
 OFFSET_TO_ACCIDENTAL = {value: key for key, value in ACCIDENTAL_TO_OFFSET.items()}
+TOP_LEVEL_COLUMNS_1_1 = [
+    "start_meas",
+    "end_meas",
+    "start_quarter",
+    "dur_quarter",
+    "time_sig",
+    "pitch",
+    "pitch_name",
+    "part",
+    "instrument",
+    "articulation",
+    "expression",
+    "dynamic",
+    "tempo_qpm",
+    "start_sec",
+    "end_sec",
+    "dur_sec",
+    "midi_velocity",
+]
+TRACK_COLUMNS_1_1 = [
+    *TOP_LEVEL_COLUMNS_1_1[:-1],
+    "pitch_dev_cents",
+    "midi_velocity",
+]
+NOTES_COLUMNS_1_1 = [
+    "start_sec",
+    "end_sec",
+    "dur_sec",
+    "pitch",
+    "pitch_dev_cents",
+    "midi_velocity",
+]
 
 
 def read_table(path: Path) -> pd.DataFrame:
@@ -42,6 +74,23 @@ def compute_end_times(starts, durations) -> list[str]:
     return [str(Decimal(start) + Decimal(dur)) for start, dur in zip(starts, durations)]
 
 
+def format_three_decimals(value: str | Decimal) -> str:
+    return f"{Decimal(str(value)).quantize(Decimal('0.001')):.3f}"
+
+
+def strip_numeric_leading_zeros(value: str) -> str:
+    text = str(value)
+    if text == "":
+        return text
+    decimal_value = Decimal(text)
+    formatted = format(decimal_value, "f")
+    if "." in formatted:
+        integer, fraction = formatted.split(".", 1)
+        integer = integer.lstrip("0") or "0"
+        return f"{integer}.{fraction}"
+    return formatted.lstrip("0") or "0"
+
+
 def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
     part_order = {"S": 0, "A": 1, "T": 2, "B": 3}
     keyed = frame.assign(
@@ -51,16 +100,34 @@ def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return keyed.drop(columns=["_meas", "_part"])
 
 
-def f0_to_midi(f0_hz: float, a4: float = 440.0) -> float:
-    # We use A4 = 442 HZ as the reference pitch for the entire dataset.
-    # Used for pitch number computations
-    return 69.0 + 12.0 * math.log2(f0_hz / a4) if f0_hz > 0.0 else 0.0
+def instrument_abbreviation_from_track_path(path: Path) -> str:
+    stem = path.name.removesuffix("_notes.csv").removesuffix(".csv")
+    try:
+        _, instrument_code = stem.split("_", 1)
+    except ValueError as exc:
+        raise ValueError(f"{path}: cannot infer instrument code from file name.") from exc
+    return instrument_code
+
+
+def pitch_deviation_cents(f0_hz: float, pitch: str, a4: float = 440.0) -> str:
+    if f0_hz <= 0.0:
+        return ""
+    reference_hz = a4 * 2 ** ((int(pitch) - 69) / 12)
+    return f"{1200 * math.log2(f0_hz / reference_hz):.3f}"
+
+
+def rows_by_part(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    return {
+        part: part_rows.reset_index(drop=True)
+        for part, part_rows in frame.groupby("part", sort=False)
+    }
 
 
 def migrate_notes_and_alignment_csvs(
     notes_path: Path,
     alignment_path: Path,
     raw_f0_cleaned: pd.DataFrame,
+    score_rows: pd.DataFrame,
 ) -> None:
     df_notes = read_table(notes_path)
     df_alignment = read_table(alignment_path)
@@ -74,6 +141,19 @@ def migrate_notes_and_alignment_csvs(
     if len(df_notes) != len(df_alignment):
         raise ValueError(f"{notes_path}: {len(df_notes)} notes do not match {len(df_alignment)} alignment rows.")
 
+    instrument = instrument_abbreviation_from_track_path(notes_path)
+    part = df_alignment["part"].iloc[0]
+    if not (df_alignment["part"] == part).all():
+        raise ValueError(f"{alignment_path}: expected exactly one part per track alignment.")
+    score_part_rows = rows_by_part(score_rows).get(part)
+    if score_part_rows is None:
+        raise ValueError(f"{alignment_path}: no top-level score rows found for part {part}.")
+    if len(score_part_rows) != len(df_alignment):
+        raise ValueError(
+            f"{alignment_path}: {len(df_alignment)} alignment rows do not match "
+            f"{len(score_part_rows)} top-level score rows for part {part}."
+        )
+
     raw_t = raw_f0_cleaned["t"].astype(float)
     raw_f0 = raw_f0_cleaned["f0"].astype(float)
     note_starts = df_notes["TIME"].astype(float)
@@ -83,51 +163,20 @@ def migrate_notes_and_alignment_csvs(
         in_window = raw_f0[(raw_t >= start) & (raw_t <= end) & (raw_f0 != 0.0)]
         return float(in_window.median()) if len(in_window) > 0 else 0.0
 
-    notes_columns_1_1 = [
-        "start_sec",
-        "end_sec",
-        "duration_sec",
-        "pitch_audio",
-        "f0_median",
-        "velocity",
-        "label",
-    ]
-    alignment_columns_1_1 = [
-        "start_meas",
-        "end_meas",
-        "duration_quarter",
-        "pitch",
-        "pitch_name",
-        "part",
-        "time_sig",
-        "velocity",
-        "start_sec",
-        "end_sec",
-        "duration_sec",
-        "pitch_audio",
-        "f0_median",
-    ]
     f0_medians = [note_f0_median(s, e) for s, e in zip(note_starts, note_ends)]
-    f0_medians_str = [str(f) for f in f0_medians]
-    pitch_audio = [str(round(f0_to_midi(f))) for f in f0_medians]
-    velocity = df_notes["LEVEL"].map(velocity_from_scalar)
-
-    df_notes = df_notes.rename(columns={"TIME": "start_sec", "DURATION": "duration_sec", "LABEL": "label"})
-    df_notes = df_notes.drop(columns=["VALUE", "LEVEL"])
-    df_notes["end_sec"] = compute_end_times(df_notes["start_sec"], df_notes["duration_sec"])
-    df_notes["pitch_audio"] = pitch_audio
-    df_notes["f0_median"] = f0_medians_str
-    df_notes["velocity"] = velocity
-    df_notes = df_notes[notes_columns_1_1]
+    midi_velocity = df_notes["LEVEL"].map(velocity_from_scalar)
+    start_sec = df_notes["TIME"]
+    dur_sec = df_notes["DURATION"]
+    end_sec = compute_end_times(start_sec, dur_sec)
 
     df_alignment = df_alignment.rename(
         columns={
-            "duration_quarterLength": "duration_quarter",
+            "duration_quarterLength": "dur_quarter",
             "pitch_sheet_music": "pitch",
             "pitchName": "pitch_name",
             "timeSig": "time_sig",
             "t_start": "start_sec",
-            "t_dur": "duration_sec",
+            "t_dur": "dur_sec",
         }
     )
     df_alignment = df_alignment.drop(columns=["f0_mean", "pitch_audio"])
@@ -135,14 +184,37 @@ def migrate_notes_and_alignment_csvs(
     df_alignment["end_meas"] = df_alignment["end_meas"].map(
         lambda value: format_measure_column_value(value, exclusive_end=True)
     )
-    df_alignment["velocity"] = velocity
-    df_alignment["end_sec"] = compute_end_times(df_alignment["start_sec"], df_alignment["duration_sec"])
-    df_alignment["pitch_audio"] = pitch_audio
-    df_alignment["f0_median"] = f0_medians_str
-    df_alignment = df_alignment[alignment_columns_1_1]
+    df_alignment["dur_quarter"] = df_alignment["dur_quarter"].map(strip_numeric_leading_zeros)
+    pitch_dev_cents = [
+        pitch_deviation_cents(f0, pitch)
+        for f0, pitch in zip(f0_medians, df_alignment["pitch"])
+    ]
 
-    write_table(df_notes, notes_path)
-    write_table(df_alignment, alignment_path)
+    track_frame = df_alignment[[
+        "start_meas",
+        "end_meas",
+        "dur_quarter",
+        "time_sig",
+        "pitch",
+        "pitch_name",
+        "part",
+    ]].copy()
+    track_frame["start_quarter"] = score_part_rows["start_quarter"].to_numpy()
+    track_frame["instrument"] = instrument
+    track_frame["articulation"] = score_part_rows["articulation"].to_numpy()
+    track_frame["expression"] = score_part_rows["expression"].to_numpy()
+    track_frame["dynamic"] = ""
+    track_frame["tempo_qpm"] = score_part_rows["tempo_qpm"].to_numpy()
+    track_frame["start_sec"] = start_sec.map(format_three_decimals).to_numpy()
+    track_frame["end_sec"] = [format_three_decimals(value) for value in end_sec]
+    track_frame["dur_sec"] = dur_sec.map(format_three_decimals).to_numpy()
+    track_frame["pitch_dev_cents"] = pitch_dev_cents
+    track_frame["midi_velocity"] = midi_velocity.to_numpy()
+    track_frame = track_frame[TRACK_COLUMNS_1_1]
+    notes_frame = track_frame[NOTES_COLUMNS_1_1]
+
+    write_table(notes_frame, notes_path)
+    write_table(track_frame, alignment_path)
 
 
 def migrate_top_level_csv(path: Path) -> None:
@@ -155,31 +227,38 @@ def migrate_top_level_csv(path: Path) -> None:
         "quarternoteoffset", "quarterNoteBPM",
     ]
     columns_1_1_order = [
-        "start_meas", "end_meas", "duration_quarter", "pitch", "pitch_name", "part",
-        "time_sig", "articulation", "expression", "velocity", "quarter_note_offset",
-        "quarter_note_BPM", "midiChannel",
+        *TOP_LEVEL_COLUMNS_1_1,
+        "midiChannel",
     ]
     if columns_actual != columns_1_0:
         raise ValueError(f"{path}: unexpected top-level CSV header {columns_actual}.")
 
     df_top_level = df_top_level.rename(
         columns={
-            "duration_quarterLength": "duration_quarter",
+            "duration_quarterLength": "dur_quarter",
             "pitchName": "pitch_name",
             "timeSig": "time_sig",
-            "volume": "velocity",
-            "quarternoteoffset": "quarter_note_offset",
-            "quarterNoteBPM": "quarter_note_BPM",
+            "volume": "midi_velocity",
+            "quarternoteoffset": "start_quarter",
+            "quarterNoteBPM": "tempo_qpm",
         }
     )
     df_top_level = df_top_level.drop(columns=["grace", "midiProgram", "pitchWritten", "pitchNameWritten"])
     
     df_top_level["start_meas"] = df_top_level["start_meas"].map(format_measure_column_value)
     df_top_level["end_meas"] = df_top_level["end_meas"].map(lambda value: format_measure_column_value(value, exclusive_end=True))
-    df_top_level["velocity"] = df_top_level["velocity"].map(velocity_from_scalar)
+    df_top_level["start_quarter"] = df_top_level["start_quarter"].map(strip_numeric_leading_zeros)
+    df_top_level["dur_quarter"] = df_top_level["dur_quarter"].map(strip_numeric_leading_zeros)
+    df_top_level["instrument"] = ""
+    df_top_level["dynamic"] = ""
+    df_top_level["start_sec"] = ""
+    df_top_level["end_sec"] = ""
+    df_top_level["dur_sec"] = ""
+    df_top_level["midi_velocity"] = df_top_level["midi_velocity"].map(velocity_from_scalar)
     df_top_level = df_top_level[columns_1_1_order]
 
     df_top_level_sorted = sort_score_rows(df_top_level)
+    df_top_level_sorted = df_top_level_sorted[TOP_LEVEL_COLUMNS_1_1]
     write_table(df_top_level_sorted, path)
 
 
@@ -373,24 +452,27 @@ def migrate_release(source: Path, target: Path) -> None:
     audio_root = target / "01_AudioAndAnnotations"
     video_root = target / "02_ConductingVideos"
 
+    # 1. Remove the orphan file 03_bcl_notes.csv in the piece Gesius_DuFriedensfuerstHerrJesuChrist
+    # before collecting note paths, otherwise the stale source file skews the count.
+    orphan = target / (
+        "01_AudioAndAnnotations/Gesius_DuFriedensfuerstHerrJesuChrist"
+        "/annotations/03_eh_notes.csv"
+    )
+    if not orphan.is_file():
+        shutil.rmtree(target)
+        raise FileNotFoundError(f"Expected stale orphan file not found: {orphan}.")
+    orphan.unlink()
+
     alignment_csv_paths = sorted(audio_root.rglob("**/alignments/*.csv"))
     notes_csv_paths = sorted(audio_root.rglob("**/*_notes.csv"))
     if len(alignment_csv_paths) != 193 or len(notes_csv_paths) != 193:
+        shutil.rmtree(target)
         raise RuntimeError(
             f"Expected 193 alignments and notes, found "
             f"{len(alignment_csv_paths)} and {len(notes_csv_paths)}."
         )
     
     try:
-        # 1. Remove the orphan file 03_bcl_notes.csv in the piece Gesius_DuFriedensfuerstHerrJesuChrist.
-        orphan = target / (
-            "01_AudioAndAnnotations/Gesius_DuFriedensfuerstHerrJesuChrist"
-            "/annotations/03_eh_notes.csv"
-        )
-        if not orphan.is_file():
-            raise FileNotFoundError(f"Expected stale orphan file not found: {orphan}.")
-        orphan.unlink()
-
         # 2. Replace known bad F0 annotations (copy-paste error in v1.0.1)
         replace_known_bad_04_bar_f0_annotations(target)
 
@@ -404,14 +486,20 @@ def migrate_release(source: Path, target: Path) -> None:
         transpose_crueger_mei(audio_root / crueger / f"{crueger}.mei")
 
         # 5. Migrate per-chorale top-level csv
+        score_rows_by_chorale: dict[Path, pd.DataFrame] = {}
         for chorale_dir in sorted(path for path in audio_root.iterdir() if path.is_dir()):
             for path in sorted(chorale_dir.glob("*.csv")):
                 migrate_top_level_csv(path)
+                score_rows_by_chorale[chorale_dir] = read_table(path)
 
         # 6. Migrate per-chorale note and alignment CSVs
         for notes_csv_path in tqdm.tqdm(notes_csv_paths, desc="Migrating ChoraleBricks v1.0.1 to v1.1.0"):
+            chorale_dir = notes_csv_path.parent.parent
+            score_rows = score_rows_by_chorale.get(chorale_dir)
+            if score_rows is None:
+                raise ValueError(f"{chorale_dir}: no migrated top-level score CSV found.")
             alignment_csv_path = (
-                notes_csv_path.parent.parent
+                chorale_dir
                 / "alignments"
                 / notes_csv_path.name.replace("_notes.csv", ".csv")
             )
@@ -419,7 +507,7 @@ def migrate_release(source: Path, target: Path) -> None:
             raw_path = notes_csv_path.with_name(f"{stem}_f0.csv")
             f0_filled_path = notes_csv_path.with_name(f"{stem}_f0_filled.csv")
             f0_raw_cleaned = clean_f0_annotations(notes_csv_path, raw_path, f0_filled_path)
-            migrate_notes_and_alignment_csvs(notes_csv_path, alignment_csv_path, f0_raw_cleaned)
+            migrate_notes_and_alignment_csvs(notes_csv_path, alignment_csv_path, f0_raw_cleaned, score_rows)
 
     except Exception:
         # If any migration step fails, abort.
