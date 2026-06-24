@@ -82,8 +82,8 @@ def main():
     for _, row in cur_notes.iterrows():
         ax.add_patch(
             plt.Rectangle(
-                (row["start"], row["f0_note"] - 5),
-                row["duration"],
+                (row["start_sec"], row["f0_note"] - 5),
+                row["duration_sec"],
                 10,
                 color=color,
                 alpha=0.5
@@ -100,7 +100,7 @@ def main():
     plt.grid(alpha=0.3)
 
     last_note = cur_notes.tail(1)
-    plt.xlim((0, 2 + last_note["start"].values[0] + last_note["duration"].values[0]))
+    plt.xlim((0, 2 + last_note["start_sec"].values[0] + last_note["duration_sec"].values[0]))
     plt.ylim((0, 600))
 
     plt.show()

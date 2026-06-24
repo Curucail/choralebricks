@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
-from choralebricks.spec import format_measure_value, velocity_from_scalar
+from choralebricks.spec import format_measure_column_value, velocity_from_scalar
 
 
 # Shared MEI music-theory lookups (used by the transposition helpers below).
@@ -24,36 +24,22 @@ ACCIDENTAL_TO_OFFSET = {"ff": -2, "f": -1, "n": 0, "s": 1, "ss": 2}
 OFFSET_TO_ACCIDENTAL = {value: key for key, value in ACCIDENTAL_TO_OFFSET.items()}
 
 
-def read_table(path: Path, sep: str) -> pd.DataFrame:
+def read_table(path: Path) -> pd.DataFrame:
     """Read a CSV as all-string columns, preserving values and empty cells verbatim."""
-    return pd.read_csv(
-        path, sep=sep, dtype=str, keep_default_na=False, encoding="utf-8-sig"
-    ).fillna("")
+    rows = pd.read_csv(path, sep=";", dtype=str, keep_default_na=False, encoding="utf-8-sig").fillna("")
+    if rows.shape[1] == 1 and "," in rows.columns[0]:
+        rows = pd.read_csv(path, sep=",", dtype=str, keep_default_na=False, encoding="utf-8-sig").fillna("")
+    return rows
 
 
 def write_table(frame: pd.DataFrame, path: Path) -> None:
+    # Always use semicolon as the separator, no index column, and Unix line endings.
     frame.to_csv(path, sep=";", index=False, lineterminator="\n", encoding="utf-8")
 
 
-def write_legacy_table(frame: pd.DataFrame, path: Path) -> None:
-    frame.to_csv(path, sep=",", index=False, lineterminator="\n", encoding="utf-8")
-
-
-def add_durations(starts, durations) -> list[str]:
-    """Exact ``start + duration`` per row, kept as strings."""
+def compute_end_times(starts, durations) -> list[str]:
+    """Exact end time ``start + duration`` per row, kept as strings."""
     return [str(Decimal(start) + Decimal(dur)) for start, dur in zip(starts, durations)]
-
-
-def format_measure_columns(frame: pd.DataFrame) -> pd.DataFrame:
-    """Format measure positions and make integer end positions exclusive."""
-    formatted = frame.copy()
-    if "start_meas" in formatted.columns:
-        formatted["start_meas"] = formatted["start_meas"].map(format_measure_value)
-    if "end_meas" in formatted.columns:
-        formatted["end_meas"] = formatted["end_meas"].map(
-            lambda value: format_measure_value(value, exclusive_end=True)
-        )
-    return formatted
 
 
 def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
@@ -65,114 +51,136 @@ def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return keyed.drop(columns=["_meas", "_part"])
 
 
-def f0_to_midi(f0_hz: float, a4: float = 442.0) -> float:
+def f0_to_midi(f0_hz: float, a4: float = 440.0) -> float:
+    # We use A4 = 442 HZ as the reference pitch for the entire dataset.
+    # Used for pitch number computations
     return 69.0 + 12.0 * math.log2(f0_hz / a4) if f0_hz > 0.0 else 0.0
 
 
-def migrate_annotation_pair(
+def migrate_notes_and_alignment_csvs(
     notes_path: Path,
     alignment_path: Path,
     raw_f0_cleaned: pd.DataFrame,
-) -> pd.DataFrame:
-    notes = read_table(notes_path, ",")
-    alignment = read_table(alignment_path, ";")
-    if list(notes.columns) != ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]:
-        raise ValueError(f"{notes_path}: unexpected notes header {list(notes.columns)}.")
-    if list(alignment.columns) != [
+) -> None:
+    df_notes = read_table(notes_path)
+    df_alignment = read_table(alignment_path)
+    if list(df_notes.columns) != ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]:
+        raise ValueError(f"{notes_path}: unexpected notes header in v1.0.1: {list(df_notes.columns)}.")
+    if list(df_alignment.columns) != [
         "t_start", "f0_mean", "t_dur", "pitch_audio", "start_meas", "end_meas",
         "duration_quarterLength", "pitch_sheet_music", "pitchName", "timeSig", "part",
     ]:
-        raise ValueError(
-            f"{alignment_path}: unexpected alignment header {list(alignment.columns)}."
-        )
-    if len(notes) != len(alignment):
-        raise ValueError(
-            f"{notes_path}: {len(notes)} notes do not match "
-            f"{len(alignment)} alignment rows."
-        )
+        raise ValueError(f"{alignment_path}: unexpected alignment header in v1.0.1: {list(df_alignment.columns)}.")
+    if len(df_notes) != len(df_alignment):
+        raise ValueError(f"{notes_path}: {len(df_notes)} notes do not match {len(df_alignment)} alignment rows.")
 
     raw_t = raw_f0_cleaned["t"].astype(float)
     raw_f0 = raw_f0_cleaned["f0"].astype(float)
-    note_starts = notes["TIME"].astype(float)
-    note_ends = note_starts + notes["DURATION"].astype(float)
+    note_starts = df_notes["TIME"].astype(float)
+    note_ends = note_starts + df_notes["DURATION"].astype(float)
 
     def note_f0_median(start: float, end: float) -> float:
         in_window = raw_f0[(raw_t >= start) & (raw_t <= end) & (raw_f0 != 0.0)]
         return float(in_window.median()) if len(in_window) > 0 else 0.0
 
+    notes_columns_1_1 = [
+        "start_sec",
+        "end_sec",
+        "duration_sec",
+        "pitch_audio",
+        "f0_median",
+        "velocity",
+        "label",
+    ]
+    alignment_columns_1_1 = [
+        "start_meas",
+        "end_meas",
+        "duration_quarter",
+        "pitch",
+        "pitch_name",
+        "part",
+        "time_sig",
+        "velocity",
+        "start_sec",
+        "end_sec",
+        "duration_sec",
+        "pitch_audio",
+        "f0_median",
+    ]
     f0_medians = [note_f0_median(s, e) for s, e in zip(note_starts, note_ends)]
     f0_medians_str = [str(f) for f in f0_medians]
     pitch_audio = [str(round(f0_to_midi(f))) for f in f0_medians]
+    velocity = df_notes["LEVEL"].map(velocity_from_scalar)
 
-    velocity = notes["LEVEL"].map(velocity_from_scalar).to_numpy()
+    df_notes = df_notes.rename(columns={"TIME": "start_sec", "DURATION": "duration_sec", "LABEL": "label"})
+    df_notes = df_notes.drop(columns=["VALUE", "LEVEL"])
+    df_notes["end_sec"] = compute_end_times(df_notes["start_sec"], df_notes["duration_sec"])
+    df_notes["pitch_audio"] = pitch_audio
+    df_notes["f0_median"] = f0_medians_str
+    df_notes["velocity"] = velocity
+    df_notes = df_notes[notes_columns_1_1]
 
-    new_notes = pd.DataFrame({
-        "start_sec": notes["TIME"].to_numpy(),
-        "end_sec": add_durations(notes["TIME"], notes["DURATION"]),
-        "duration_sec": notes["DURATION"].to_numpy(),
-        "pitch_audio": pitch_audio,
-        "f0_median": f0_medians_str,
-        "velocity": velocity,
-        "label": notes["LABEL"].to_numpy(),
-    })
-    new_alignment = pd.DataFrame({
-        "start_meas": alignment["start_meas"].to_numpy(),
-        "end_meas": alignment["end_meas"].to_numpy(),
-        "duration_quarter": alignment["duration_quarterLength"].to_numpy(),
-        "pitch": alignment["pitch_sheet_music"].to_numpy(),
-        "pitch_name": alignment["pitchName"].to_numpy(),
-        "part": alignment["part"].to_numpy(),
-        "time_sig": alignment["timeSig"].to_numpy(),
-        "velocity": velocity,
-        "start_sec": alignment["t_start"].to_numpy(),
-        "end_sec": add_durations(alignment["t_start"], alignment["t_dur"]),
-        "duration_sec": alignment["t_dur"].to_numpy(),
-        "pitch_audio": pitch_audio,
-        "f0_median": f0_medians_str,
-    })
-    write_table(new_notes, notes_path)
-    write_table(format_measure_columns(new_alignment), alignment_path)
-    return new_notes
+    df_alignment = df_alignment.rename(
+        columns={
+            "duration_quarterLength": "duration_quarter",
+            "pitch_sheet_music": "pitch",
+            "pitchName": "pitch_name",
+            "timeSig": "time_sig",
+            "t_start": "start_sec",
+            "t_dur": "duration_sec",
+        }
+    )
+    df_alignment = df_alignment.drop(columns=["f0_mean", "pitch_audio"])
+    df_alignment["start_meas"] = df_alignment["start_meas"].map(format_measure_column_value)
+    df_alignment["end_meas"] = df_alignment["end_meas"].map(
+        lambda value: format_measure_column_value(value, exclusive_end=True)
+    )
+    df_alignment["velocity"] = velocity
+    df_alignment["end_sec"] = compute_end_times(df_alignment["start_sec"], df_alignment["duration_sec"])
+    df_alignment["pitch_audio"] = pitch_audio
+    df_alignment["f0_median"] = f0_medians_str
+    df_alignment = df_alignment[alignment_columns_1_1]
+
+    write_table(df_notes, notes_path)
+    write_table(df_alignment, alignment_path)
 
 
-def migrate_piece_csv(path: Path) -> int:
-    rows = read_table(path, ";")
-    if rows.shape[1] == 1 and "," in rows.columns[0]:
-        rows = read_table(path, ",")
-    columns = list(rows.columns)
-    score_1_0 = [
+def migrate_top_level_csv(path: Path) -> None:
+    df_top_level = read_table(path)
+    columns_actual = list(df_top_level.columns)
+    columns_1_0 = [
         "start_meas", "end_meas", "duration_quarterLength", "pitch", "pitchName",
         "timeSig", "articulation", "expression", "grace", "part", "midiChannel",
         "midiProgram", "volume", "pitchWritten", "pitchNameWritten",
         "quarternoteoffset", "quarterNoteBPM",
     ]
-    score_1_1 = [
+    columns_1_1_order = [
         "start_meas", "end_meas", "duration_quarter", "pitch", "pitch_name", "part",
         "time_sig", "articulation", "expression", "velocity", "quarter_note_offset",
         "quarter_note_BPM", "midiChannel",
     ]
-    if columns == score_1_0:
-        migrated = pd.DataFrame({
-            "start_meas": rows["start_meas"].to_numpy(),
-            "end_meas": rows["end_meas"].to_numpy(),
-            "duration_quarter": rows["duration_quarterLength"].to_numpy(),
-            "pitch": rows["pitch"].to_numpy(),
-            "pitch_name": rows["pitchName"].to_numpy(),
-            "part": rows["part"].to_numpy(),
-            "time_sig": rows["timeSig"].to_numpy(),
-            "articulation": rows["articulation"].to_numpy(),
-            "expression": rows["expression"].to_numpy(),
-            "velocity": rows["volume"].map(velocity_from_scalar).to_numpy(),
-            "quarter_note_offset": rows["quarternoteoffset"].to_numpy(),
-            "quarter_note_BPM": rows["quarterNoteBPM"].to_numpy(),
-            "midiChannel": rows["midiChannel"].to_numpy(),
-        })
-        write_table(sort_score_rows(format_measure_columns(migrated)), path)
-    elif columns == score_1_1:
-        write_table(sort_score_rows(format_measure_columns(rows)), path)
-    else:
-        write_table(format_measure_columns(rows), path)
-    return len(rows)
+    if columns_actual != columns_1_0:
+        raise ValueError(f"{path}: unexpected top-level CSV header {columns_actual}.")
+
+    df_top_level = df_top_level.rename(
+        columns={
+            "duration_quarterLength": "duration_quarter",
+            "pitchName": "pitch_name",
+            "timeSig": "time_sig",
+            "volume": "velocity",
+            "quarternoteoffset": "quarter_note_offset",
+            "quarterNoteBPM": "quarter_note_BPM",
+        }
+    )
+    df_top_level = df_top_level.drop(columns=["grace", "midiProgram", "pitchWritten", "pitchNameWritten"])
+    
+    df_top_level["start_meas"] = df_top_level["start_meas"].map(format_measure_column_value)
+    df_top_level["end_meas"] = df_top_level["end_meas"].map(lambda value: format_measure_column_value(value, exclusive_end=True))
+    df_top_level["velocity"] = df_top_level["velocity"].map(velocity_from_scalar)
+    df_top_level = df_top_level[columns_1_1_order]
+
+    df_top_level_sorted = sort_score_rows(df_top_level)
+    write_table(df_top_level_sorted, path)
 
 
 def clean_f0_annotations(
@@ -184,15 +192,15 @@ def clean_f0_annotations(
 
     Returns the cleaned raw F0 DataFrame (columns: t, f0, label) for downstream use.
     """
-    notes = read_table(notes_path, ",")
+    notes = read_table(notes_path)
     if list(notes.columns) != ["TIME", "VALUE", "DURATION", "LEVEL", "LABEL"]:
         raise ValueError(f"{notes_path}: unexpected notes header {list(notes.columns)}.")
-    raw = read_table(raw_path, ",")
+    raw = read_table(raw_path)
     if list(raw.columns) != ["TIME", "VALUE", "LABEL"]:
         raise ValueError(f"{raw_path}: unexpected raw F0 header {list(raw.columns)}.")
     raw = raw.rename(columns={"TIME": "t", "VALUE": "f0", "LABEL": "label"})
 
-    filled = read_table(filled_path, ",")
+    filled = read_table(filled_path)
     if list(filled.columns) != ["t", "f0"]:
         raise ValueError(f"{filled_path}: unexpected filled F0 header {list(filled.columns)}.")
 
@@ -213,70 +221,6 @@ def clean_f0_annotations(
     return cleaned_raw
 
 
-def read_svl_pitch_track(svl_path: Path) -> pd.DataFrame:
-    """Read a Sonic Visualiser sparse pitch track into the legacy raw-F0 schema."""
-    root = ET.parse(svl_path).getroot()
-    model = root.find(".//model")
-    if model is None:
-        raise ValueError(f"{svl_path}: missing <model> definition.")
-
-    sample_rate = float(model.attrib["sampleRate"])
-    points = root.findall(".//point")
-    if not points:
-        raise ValueError(f"{svl_path}: no pitch points found.")
-
-    raw = pd.DataFrame({
-        "TIME": [float(point.attrib["frame"]) / sample_rate for point in points],
-        "VALUE": [float(point.attrib["value"]) for point in points],
-        "LABEL": [point.attrib.get("label", "") for point in points],
-    })
-    return raw
-
-
-def interpolate_f0_to_template(
-    raw_pitch: pd.DataFrame,
-    filled_template_path: Path,
-) -> pd.DataFrame:
-    """Project sparse raw F0 onto the copied filled-F0 time axis."""
-    filled_template = read_table(filled_template_path, ",")
-    if list(filled_template.columns) != ["t", "f0"]:
-        raise ValueError(
-            f"{filled_template_path}: unexpected filled F0 header "
-            f"{list(filled_template.columns)}."
-        )
-
-    target_times = filled_template["t"].astype(float).to_numpy()
-    f0_orig = raw_pitch[["TIME", "VALUE"]].astype(float).to_numpy()
-
-    _, unique_idx = np.unique(f0_orig[:, 0], return_index=True)
-    f0_orig = f0_orig[np.sort(unique_idx), :]
-
-    f0_new = np.zeros_like(target_times)
-    if len(f0_orig) < 2:
-        return pd.DataFrame({"t": filled_template["t"].to_numpy(), "f0": f0_new})
-
-    dt = np.diff(f0_orig[:, 0])
-    positive_dt = dt[dt > 0]
-    if len(positive_dt) == 0:
-        return pd.DataFrame({"t": filled_template["t"].to_numpy(), "f0": f0_new})
-    dt_max_allowed = float(np.min(positive_dt)) * 1.0001
-
-    idxs = np.searchsorted(f0_orig[:, 0], target_times) - 1
-    idxs[idxs < 0] = 0
-    idxs[idxs >= len(f0_orig) - 1] = len(f0_orig) - 2
-
-    t_idx = np.take(f0_orig[:, 0], idxs)
-    t_diff = target_times - t_idx
-    mask = (t_diff >= 0) & (t_diff <= dt_max_allowed)
-
-    h = t_diff[mask] / np.take(dt, idxs[mask])
-    f0_new[mask] = (
-        (1 - h) * np.take(f0_orig[:, 1], idxs[mask])
-        + h * np.take(f0_orig[:, 1], idxs[mask] + 1)
-    )
-    return pd.DataFrame({"t": filled_template["t"].to_numpy(), "f0": f0_new})
-
-
 def replace_known_bad_04_bar_f0_annotations(target: Path) -> None:
     """Replace a known copied F0 artifact with the checked-in corrected pitch track."""
     annotations_dir = (
@@ -294,10 +238,36 @@ def replace_known_bad_04_bar_f0_annotations(target: Path) -> None:
             f"Expected replacement Sonic Visualiser file not found: {replacement_svl}."
         )
 
-    raw_pitch = read_svl_pitch_track(replacement_svl)
-    filled_pitch = interpolate_f0_to_template(raw_pitch, filled_path)
-    write_legacy_table(raw_pitch, raw_path)
-    write_legacy_table(filled_pitch, filled_path)
+    root = ET.parse(replacement_svl).getroot()
+    model = root.find(".//model")
+    if model is None:
+        raise ValueError(f"{replacement_svl}: missing <model> definition.")
+    sample_rate = float(model.attrib["sampleRate"])
+    points = root.findall(".//point")
+    if not points:
+        raise ValueError(f"{replacement_svl}: no pitch points found.")
+    raw_pitch = pd.DataFrame({
+        "TIME": [float(p.attrib["frame"]) / sample_rate for p in points],
+        "VALUE": [float(p.attrib["value"]) for p in points],
+        "LABEL": [p.attrib.get("label", "") for p in points],
+    })
+
+    filled_template = read_table(filled_path)
+    if list(filled_template.columns) != ["t", "f0"]:
+        raise ValueError(f"{filled_path}: unexpected filled F0 header {list(filled_template.columns)}.")
+    target_times = filled_template["t"].astype(float).to_numpy()
+    f0_orig = raw_pitch[["TIME", "VALUE"]].astype(float).to_numpy()
+    _, unique_idx = np.unique(f0_orig[:, 0], return_index=True)
+    f0_orig = f0_orig[np.sort(unique_idx)]
+    f0_new = (
+        np.interp(target_times, f0_orig[:, 0], f0_orig[:, 1], left=0.0, right=0.0)
+        if len(f0_orig) >= 2
+        else np.zeros_like(target_times)
+    )
+    filled_pitch = pd.DataFrame({"t": filled_template["t"].to_numpy(), "f0": f0_new})
+
+    write_table(raw_pitch, raw_path)
+    write_table(filled_pitch, filled_path)
 
 
 def mei_note_midi(note: ET.Element, key_offsets: dict[str, int]) -> int:
@@ -393,14 +363,26 @@ def transpose_crueger_mei(mei_path: Path) -> int:
 
 def migrate_release(source: Path, target: Path) -> None:
     if not source.is_dir():
-        raise FileNotFoundError(f"Source release not found: {source}.")
+        raise FileNotFoundError(f"Source release directorynot found: {source}.")
     if target.exists():
-        raise FileExistsError(f"Target already exists: {target}.")
+        raise FileExistsError(f"Target directory already exists: {target}.")
 
+    # copy the entire dataset into a new directory, then migrate in-place
     shutil.copytree(source, target, copy_function=shutil.copy2)
+
+    audio_root = target / "01_AudioAndAnnotations"
+    video_root = target / "02_ConductingVideos"
+
+    alignment_csv_paths = sorted(audio_root.rglob("**/alignments/*.csv"))
+    notes_csv_paths = sorted(audio_root.rglob("**/*_notes.csv"))
+    if len(alignment_csv_paths) != 193 or len(notes_csv_paths) != 193:
+        raise RuntimeError(
+            f"Expected 193 alignments and notes, found "
+            f"{len(alignment_csv_paths)} and {len(notes_csv_paths)}."
+        )
+    
     try:
-        # There is a stale file in v1.0.1 which was a overseen copy/rename artifact of 03_bcl_notes.csv in v1.0.1
-        # It will be removed for v1.1.0
+        # 1. Remove the orphan file 03_bcl_notes.csv in the piece Gesius_DuFriedensfuerstHerrJesuChrist.
         orphan = target / (
             "01_AudioAndAnnotations/Gesius_DuFriedensfuerstHerrJesuChrist"
             "/annotations/03_eh_notes.csv"
@@ -409,51 +391,38 @@ def migrate_release(source: Path, target: Path) -> None:
             raise FileNotFoundError(f"Expected stale orphan file not found: {orphan}.")
         orphan.unlink()
 
+        # 2. Replace known bad F0 annotations (copy-paste error in v1.0.1)
         replace_known_bad_04_bar_f0_annotations(target)
 
-        audio_root = target / "01_AudioAndAnnotations"
-        for component in (audio_root, target / "02_ConductingVideos"):
-            # Mandatory VERSION tagging starting from v1.1.0
-            (component / "VERSION").write_text("1.1.0\n", encoding="utf-8")
+        # 3. Mandatory VERSION tagging starting from v1.1.0
+        for dir in (audio_root, video_root):
+            (dir / "VERSION").write_text("1.1.0\n", encoding="utf-8")
 
-        alignment_paths = sorted(
-            path
-            for path in audio_root.rglob("*.csv")
-            if path.parent.name == "alignments"
-        )
-        notes_paths = sorted(audio_root.rglob("*_notes.csv"))
-        if len(alignment_paths) != 193 or len(notes_paths) != 193:
-            raise RuntimeError(
-                f"Expected 193 alignments and notes, found "
-                f"{len(alignment_paths)} and {len(notes_paths)}."
-            )
-
-        for notes_path in tqdm.tqdm(notes_paths, desc="Migrating ChoraleBricks v1.0.1 to v1.1.0"):
-            alignment_path = (
-                notes_path.parent.parent
-                / "alignments"
-                / notes_path.name.replace("_notes.csv", ".csv")
-            )
-            stem = notes_path.name.removesuffix("_notes.csv")
-            raw_path = notes_path.with_name(f"{stem}_f0.csv")
-            filled_path = notes_path.with_name(f"{stem}_f0_filled.csv")
-            cleaned_raw = clean_f0_annotations(notes_path, raw_path, filled_path)
-            migrate_annotation_pair(notes_path, alignment_path, cleaned_raw)
-
-        # The piece Crueger_AufAufMeinHerzMitFreuden is notated in D major but should be in C major to match the rest of the dataset. 
+        # 4. The piece Crueger_AufAufMeinHerzMitFreuden is notated in D major but should be in C major to match the rest of the dataset. 
         # We transpose it down 2 semitones by editing the MEI file.
         crueger = "Crueger_AufAufMeinHerzMitFreuden"
         transpose_crueger_mei(audio_root / crueger / f"{crueger}.mei")
 
-        migrated_paths = set(notes_paths) | set(alignment_paths)
-        migrated_paths.update(audio_root.rglob("*_f0.csv"))
-        migrated_paths.update(audio_root.rglob("*_f0_filled.csv"))
-        for path in sorted(target.rglob("*.csv")):
-            if path not in migrated_paths:
-                # Migrate the per chorale top-level csvs
-                migrate_piece_csv(path)
+        # 5. Migrate per-chorale top-level csv
+        for chorale_dir in sorted(path for path in audio_root.iterdir() if path.is_dir()):
+            for path in sorted(chorale_dir.glob("*.csv")):
+                migrate_top_level_csv(path)
+
+        # 6. Migrate per-chorale note and alignment CSVs
+        for notes_csv_path in tqdm.tqdm(notes_csv_paths, desc="Migrating ChoraleBricks v1.0.1 to v1.1.0"):
+            alignment_csv_path = (
+                notes_csv_path.parent.parent
+                / "alignments"
+                / notes_csv_path.name.replace("_notes.csv", ".csv")
+            )
+            stem = notes_csv_path.name.removesuffix("_notes.csv")
+            raw_path = notes_csv_path.with_name(f"{stem}_f0.csv")
+            f0_filled_path = notes_csv_path.with_name(f"{stem}_f0_filled.csv")
+            f0_raw_cleaned = clean_f0_annotations(notes_csv_path, raw_path, f0_filled_path)
+            migrate_notes_and_alignment_csvs(notes_csv_path, alignment_csv_path, f0_raw_cleaned)
 
     except Exception:
+        # If any migration step fails, abort.
         shutil.rmtree(target)
         raise
 

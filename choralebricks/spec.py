@@ -8,12 +8,13 @@ implementors of the data contract.
 from __future__ import annotations
 
 import bisect
-import csv
 import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Iterable
+
+import pandas as pd
 
 # --------------------------------------------------------------------------- #
 # Column layouts (v1.1 data contract)
@@ -22,14 +23,15 @@ SCORE_FIELDS = [
     "start_meas",
     "end_meas",
     "duration_quarter",
+    "quarter_note_offset",
     "pitch",
     "pitch_name",
     "part",
+    "instrument",
     "time_sig",
     "articulation",
     "expression",
     "velocity",
-    "quarter_note_offset",
     "quarter_note_BPM",
     "midiChannel",
 ]
@@ -37,18 +39,23 @@ ALIGNMENT_FIELDS = [
     "start_meas",
     "end_meas",
     "duration_quarter",
+    "quarter_note_offset",
     "pitch",
     "pitch_name",
     "part",
+    "instrument",
     "time_sig",
+    "articulation",
+    "expression",
     "velocity",
-    "start",
-    "end",
-    "duration",
+    "quarter_note_BPM",
+    "start_sec",
+    "end_sec",
+    "duration_sec",
     "pitch_audio",
     "f0_note",
 ]
-NOTES_FIELDS = ["start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label"]
+NOTES_FIELDS = ["start_sec", "end_sec", "duration_sec", "pitch_audio", "f0_note", "velocity", "label"]
 RAW_F0_FIELDS = ["t", "f0", "label"]
 FILLED_F0_FIELDS = ["t", "f0"]
 CHORD_FIELDS = ["start_meas", "end_meas", "chord"]
@@ -110,7 +117,18 @@ def format_decimal(value: Decimal, places: int) -> str:
     return f"{value:.{places}f}"
 
 
-def format_measure_value(value: Any, exclusive_end: bool = False) -> str:
+def _coerce_semicolon_csv_types(df: pd.DataFrame) -> pd.DataFrame:
+    typed = df.copy()
+    for column in typed.columns:
+        series = typed[column]
+        numeric = pd.to_numeric(series, errors="coerce")
+        non_empty = series != ""
+        if non_empty.any() and numeric[non_empty].notna().all():
+            typed[column] = numeric
+    return typed
+
+
+def format_measure_column_value(value: Any, exclusive_end: bool = False) -> str:
     """Fixed-width three-decimal measure position.
 
     With ``exclusive_end`` a position that lands on (or numerically rounds to) an
@@ -124,7 +142,7 @@ def format_measure_value(value: Any, exclusive_end: bool = False) -> str:
         elif math.isclose(round(numeric_value, 3), round(round(numeric_value, 3)), abs_tol=MEASURE_INTEGER_TOLERANCE):
             numeric_value = round(round(numeric_value, 3)) - MEASURE_BOUNDARY_OFFSET
     sign = "-" if numeric_value < 0 else ""
-    return f"{sign}{abs(numeric_value):07.3f}"
+    return f"{sign}{abs(numeric_value):.3f}"
 
 
 def format_quarter_value(value: Any) -> str:
@@ -173,7 +191,7 @@ def pitch_name_to_midi(pitch_name: str) -> int:
 
 def note_intervals(notes: list[dict[str, str]]) -> list[tuple[float, float]]:
     return [
-        (float(note["start"]), float(note["start"]) + float(note["duration"]))
+        (float(note["start_sec"]), float(note["start_sec"]) + float(note["duration_sec"]))
         for note in notes
     ]
 
@@ -188,14 +206,12 @@ def time_in_intervals(time: float, sorted_intervals: list[tuple[float, float]]) 
 # --------------------------------------------------------------------------- #
 # CSV IO (semicolon-delimited, UTF-8, LF line endings)
 # --------------------------------------------------------------------------- #
-def read_semicolon_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
-    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter=";")
-        return list(reader.fieldnames or []), list(reader)
+def read_semicolon_csv(path: Path) -> tuple[list[str], list[dict[str, Any]]]:
+    df = pd.read_csv(Path(path), sep=";", encoding="utf-8-sig", dtype=str, keep_default_na=False)
+    df = _coerce_semicolon_csv_types(df)
+    return list(df.columns), df.to_dict(orient="records")
 
 
 def write_semicolon_csv(path: Path, fields: list[str], rows: Iterable[dict[str, str]]) -> None:
-    with Path(path).open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, delimiter=";", lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
+    df = pd.DataFrame.from_records(list(rows), columns=fields)
+    df.to_csv(Path(path), sep=";", index=False, lineterminator="\n", encoding="utf-8")

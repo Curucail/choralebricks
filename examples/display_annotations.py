@@ -19,7 +19,7 @@ def main():
     cur_notes = read_notes(cur_track.path_notes)
 
     mask = cur_f0["t"].apply(
-        lambda t: any((t >= row["start"]) and (t <= row["start"] + row["duration"]) for _, row in cur_notes.iterrows())
+        lambda t: any((t >= row["start_sec"]) and (t <= row["start_sec"] + row["duration_sec"]) for _, row in cur_notes.iterrows())
     )
 
     # Filter cur_f0 using the the notes as mask
@@ -52,8 +52,8 @@ def main():
     # Overlay data (second dataframe)
     for _, row in cur_notes.iterrows():
         plt.gca().add_patch(plt.Rectangle(
-            (row["start"], row["f0_note"] - 5),
-            row["duration"],
+            (row["start_sec"], row["f0_note"] - 5),
+            row["duration_sec"],
             10,
             color="orange",
             alpha=0.3

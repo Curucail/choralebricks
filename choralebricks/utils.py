@@ -65,7 +65,7 @@ def read_notes(
     path_csv: Path,
     rename_cols: bool=True
 ) -> pd.DataFrame:
-    expected_columns = ["start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label"]
+    expected_columns = ["start_sec", "end_sec", "duration_sec", "pitch_audio", "f0_note", "velocity", "label"]
 
     if path_csv == None:
         raise FileNotFoundError(f"File not found: {path_csv}")
@@ -93,14 +93,15 @@ def read_sheet_music_csv(
         "start_meas",
         "end_meas",
         "duration_quarter",
+        "quarter_note_offset",
         "pitch",
         "pitch_name",
         "part",
+        "instrument",
         "time_sig",
         "articulation",
         "expression",
         "velocity",
-        "quarter_note_offset",
         "quarter_note_BPM",
         "midiChannel",
     ]
