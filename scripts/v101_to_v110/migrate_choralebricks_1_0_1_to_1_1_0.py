@@ -116,6 +116,15 @@ def pitch_deviation_cents(f0_hz: float, pitch: str, a4: float = 440.0) -> str:
     return f"{1200 * math.log2(f0_hz / reference_hz):.3f}"
 
 
+def performance_pitch(score_pitch: str, instrument: str) -> str:
+    pitch = int(score_pitch)
+    if instrument == "tba":
+        pitch -= 12
+    elif instrument == "fl":
+        pitch += 12
+    return str(pitch)
+
+
 def rows_by_part(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {
         part: part_rows.reset_index(drop=True)
@@ -185,9 +194,13 @@ def migrate_notes_and_alignment_csvs(
         lambda value: format_measure_column_value(value, exclusive_end=True)
     )
     df_alignment["dur_quarter"] = df_alignment["dur_quarter"].map(strip_numeric_leading_zeros)
+    adjusted_pitches = [
+        performance_pitch(pitch, instrument)
+        for pitch in df_alignment["pitch"]
+    ]
     pitch_dev_cents = [
         pitch_deviation_cents(f0, pitch)
-        for f0, pitch in zip(f0_medians, df_alignment["pitch"])
+        for f0, pitch in zip(f0_medians, adjusted_pitches)
     ]
 
     track_frame = df_alignment[[
@@ -199,6 +212,7 @@ def migrate_notes_and_alignment_csvs(
         "pitch_name",
         "part",
     ]].copy()
+    track_frame["pitch"] = adjusted_pitches
     track_frame["start_quarter"] = score_part_rows["start_quarter"].to_numpy()
     track_frame["instrument"] = instrument
     track_frame["articulation"] = score_part_rows["articulation"].to_numpy()
