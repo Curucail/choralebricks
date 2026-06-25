@@ -48,6 +48,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "black",
+    "tqdm>=4.68.3",
 ]
 
 [tool.uv]

@@ -135,12 +135,14 @@ def pitch_deviation_cents(f0_hz: float, pitch: str, a4: float = 440.0) -> str:
     return str(round(1200 * math.log2(f0_hz / reference_hz)))
 
 
-def performance_pitch(score_pitch: str, instrument: str) -> str:
+def performance_pitch(score_pitch: str, instrument: str, song_id: str = "") -> str:
     pitch = int(score_pitch)
     if instrument == "tba":
         pitch -= 12
     elif instrument == "fl":
         pitch += 12
+    elif instrument == "bar" and song_id == "Anonymous_AusMeinesHerzensGrunde":
+        pitch -= 12
     return str(pitch)
 
 
@@ -170,6 +172,7 @@ def migrate_notes_and_alignment_csvs(
         raise ValueError(f"{notes_path}: {len(df_notes)} notes do not match {len(df_alignment)} alignment rows.")
 
     instrument = instrument_abbreviation_from_track_path(notes_path)
+    song_id = notes_path.parent.parent.name
     part = df_alignment["part"].iloc[0]
     if not (df_alignment["part"] == part).all():
         raise ValueError(f"{alignment_path}: expected exactly one part per track alignment.")
@@ -207,13 +210,14 @@ def migrate_notes_and_alignment_csvs(
         "t_start": "start_sec",
         "t_dur": "dur_sec",
     })
+    df_alignment["pitch_name"] = df_alignment["pitch_name"].str.replace("-", "b", regex=False)
 
     df_alignment["start_meas"] = df_alignment["start_meas"].map(format_measure_column_value)
     df_alignment["end_meas"] = df_alignment["end_meas"].map(
         lambda value: format_measure_column_value(value, exclusive_end=True)
     )
     df_alignment["dur_quarter"] = df_alignment["dur_quarter"].map(strip_numeric_leading_zeros)
-    df_alignment["pitch"] = [performance_pitch(p, instrument) for p in df_alignment["pitch"]]
+    df_alignment["pitch"] = [performance_pitch(p, instrument, song_id) for p in df_alignment["pitch"]]
 
     pitch_dev_cents = [
         pitch_deviation_cents(f0, pitch)
@@ -265,6 +269,7 @@ def migrate_top_level_csv(path: Path) -> None:
         }
     )
     df_top_level = df_top_level.drop(columns=["grace", "midiProgram", "pitchWritten", "pitchNameWritten"])
+    df_top_level["pitch_name"] = df_top_level["pitch_name"].str.replace("-", "b", regex=False)
     
     df_top_level["start_meas"] = df_top_level["start_meas"].map(format_measure_column_value)
     df_top_level["end_meas"] = df_top_level["end_meas"].map(lambda value: format_measure_column_value(value, exclusive_end=True))
