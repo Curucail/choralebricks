@@ -55,6 +55,8 @@ INSTRUMENT_STRINGS = {
     Instrument.BASSOON: "Bassoon"
 }
 
+INSTRUMENT_FROM_NAME = {name: inst for inst, name in INSTRUMENT_STRINGS.items()}
+
 
 class InstrumentType(Enum):
     """

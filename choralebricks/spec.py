@@ -22,47 +22,50 @@ import pandas as pd
 SCORE_FIELDS = [
     "start_meas",
     "end_meas",
-    "duration_quarter",
-    "quarter_note_offset",
+    "start_quarter",
+    "dur_quarter",
+    "time_sig",
     "pitch",
     "pitch_name",
     "part",
     "instrument",
-    "time_sig",
     "articulation",
     "expression",
-    "velocity",
-    "quarter_note_BPM",
-    "midiChannel",
+    "dynamic",
+    "tempo_qpm",
+    "start_sec",
+    "end_sec",
+    "dur_sec",
+    "midi_velocity",
 ]
 ALIGNMENT_FIELDS = [
     "start_meas",
     "end_meas",
-    "duration_quarter",
-    "quarter_note_offset",
+    "start_quarter",
+    "dur_quarter",
+    "time_sig",
     "pitch",
     "pitch_name",
     "part",
     "instrument",
-    "time_sig",
     "articulation",
     "expression",
-    "velocity",
-    "quarter_note_BPM",
+    "dynamic",
+    "tempo_qpm",
     "start_sec",
     "end_sec",
-    "duration_sec",
-    "pitch_audio",
-    "f0_note",
+    "dur_sec",
+    "pitch_dev_cents",
+    "midi_velocity",
 ]
-NOTES_FIELDS = ["start_sec", "end_sec", "duration_sec", "pitch_audio", "f0_note", "velocity", "label"]
+NOTES_FIELDS = ["start_sec", "end_sec", "dur_sec", "pitch", "pitch_dev_cents", "midi_velocity"]
 RAW_F0_FIELDS = ["t", "f0", "label"]
 FILLED_F0_FIELDS = ["t", "f0"]
 CHORD_FIELDS = ["start_meas", "end_meas", "chord"]
 METADATA_SONG_FIELDS = ["song_id", "composer", "title", "year"]
 METADATA_TRACK_FIELDS = [
     "song_id",
-    "voice",
+    "part",
     "instrument",
     "path_audio",
     "path_f0",
@@ -191,7 +194,7 @@ def pitch_name_to_midi(pitch_name: str) -> int:
 
 def note_intervals(notes: list[dict[str, str]]) -> list[tuple[float, float]]:
     return [
-        (float(note["start_sec"]), float(note["start_sec"]) + float(note["duration_sec"]))
+        (float(note["start_sec"]), float(note["start_sec"]) + float(note["dur_sec"]))
         for note in notes
     ]
 

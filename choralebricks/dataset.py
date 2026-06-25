@@ -12,8 +12,8 @@ import pandas as pd
 import soundfile as sf
 from pydantic import BaseModel, model_validator
 
-from .constants import (INSTRUMENTS_BRASS, INSTRUMENTS_WOODWIND, Instrument,
-                        InstrumentType)
+from .constants import (INSTRUMENT_FROM_NAME, INSTRUMENTS_BRASS, INSTRUMENTS_WOODWIND,
+                        Instrument, InstrumentType, VOICE_STRINGS_SHORT)
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +230,8 @@ class Song:
                 num_channels=file_info.channels,
                 min_samples=file_info.frames,
                 sample_rate=file_info.samplerate,
-                voice=int(cur_meta_track["voice"]),
-                instrument=Instrument(cur_meta_track["instrument"]),
+                voice=VOICE_STRINGS_SHORT[cur_meta_track["part"]].value,
+                instrument=INSTRUMENT_FROM_NAME[cur_meta_track["instrument"]],
                 date=optional_metadata_value(cur_meta_track["date"]),
                 performer=optional_metadata_value(cur_meta_track["performer"]),
                 microphone=optional_metadata_value(cur_meta_track["microphone"]),

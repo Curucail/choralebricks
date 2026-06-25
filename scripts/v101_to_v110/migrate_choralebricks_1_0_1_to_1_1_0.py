@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
+from choralebricks.constants import Instrument, INSTRUMENT_STRINGS
 from choralebricks.spec import format_measure_column_value, velocity_from_scalar
 
 
@@ -41,7 +42,7 @@ TOP_LEVEL_COLUMNS_1_1 = [
     "dur_sec",
     "midi_velocity",
 ]
-TRACK_COLUMNS_1_1 = [
+ALIGNMENT_COLUMNS_1_1 = [
     *TOP_LEVEL_COLUMNS_1_1[:-1],
     "pitch_dev_cents",
     "midi_velocity",
@@ -113,7 +114,7 @@ def pitch_deviation_cents(f0_hz: float, pitch: str, a4: float = 440.0) -> str:
     if f0_hz <= 0.0:
         return ""
     reference_hz = a4 * 2 ** ((int(pitch) - 69) / 12)
-    return f"{1200 * math.log2(f0_hz / reference_hz):.3f}"
+    return str(round(1200 * math.log2(f0_hz / reference_hz)))
 
 
 def performance_pitch(score_pitch: str, instrument: str) -> str:
@@ -178,57 +179,44 @@ def migrate_notes_and_alignment_csvs(
     dur_sec = df_notes["DURATION"]
     end_sec = compute_end_times(start_sec, dur_sec)
 
-    df_alignment = df_alignment.rename(
-        columns={
-            "duration_quarterLength": "dur_quarter",
-            "pitch_sheet_music": "pitch",
-            "pitchName": "pitch_name",
-            "timeSig": "time_sig",
-            "t_start": "start_sec",
-            "t_dur": "dur_sec",
-        }
-    )
     df_alignment = df_alignment.drop(columns=["f0_mean", "pitch_audio"])
+    df_alignment = df_alignment.rename(columns={
+        "duration_quarterLength": "dur_quarter",
+        "pitch_sheet_music": "pitch",
+        "pitchName": "pitch_name",
+        "timeSig": "time_sig",
+        "t_start": "start_sec",
+        "t_dur": "dur_sec",
+    })
+
     df_alignment["start_meas"] = df_alignment["start_meas"].map(format_measure_column_value)
     df_alignment["end_meas"] = df_alignment["end_meas"].map(
         lambda value: format_measure_column_value(value, exclusive_end=True)
     )
     df_alignment["dur_quarter"] = df_alignment["dur_quarter"].map(strip_numeric_leading_zeros)
-    adjusted_pitches = [
-        performance_pitch(pitch, instrument)
-        for pitch in df_alignment["pitch"]
-    ]
+    df_alignment["pitch"] = [performance_pitch(p, instrument) for p in df_alignment["pitch"]]
+
     pitch_dev_cents = [
         pitch_deviation_cents(f0, pitch)
-        for f0, pitch in zip(f0_medians, adjusted_pitches)
+        for f0, pitch in zip(f0_medians, df_alignment["pitch"])
     ]
 
-    track_frame = df_alignment[[
-        "start_meas",
-        "end_meas",
-        "dur_quarter",
-        "time_sig",
-        "pitch",
-        "pitch_name",
-        "part",
-    ]].copy()
-    track_frame["pitch"] = adjusted_pitches
-    track_frame["start_quarter"] = score_part_rows["start_quarter"].to_numpy()
-    track_frame["instrument"] = instrument
-    track_frame["articulation"] = score_part_rows["articulation"].to_numpy()
-    track_frame["expression"] = score_part_rows["expression"].to_numpy()
-    track_frame["dynamic"] = ""
-    track_frame["tempo_qpm"] = score_part_rows["tempo_qpm"].to_numpy()
-    track_frame["start_sec"] = start_sec.map(format_three_decimals).to_numpy()
-    track_frame["end_sec"] = [format_three_decimals(value) for value in end_sec]
-    track_frame["dur_sec"] = dur_sec.map(format_three_decimals).to_numpy()
-    track_frame["pitch_dev_cents"] = pitch_dev_cents
-    track_frame["midi_velocity"] = midi_velocity.to_numpy()
-    track_frame = track_frame[TRACK_COLUMNS_1_1]
-    notes_frame = track_frame[NOTES_COLUMNS_1_1]
+    df_alignment["start_quarter"] = score_part_rows["start_quarter"].to_numpy()
+    df_alignment["instrument"] = INSTRUMENT_STRINGS[Instrument(instrument)]
+    df_alignment["articulation"] = score_part_rows["articulation"].to_numpy()
+    df_alignment["expression"] = score_part_rows["expression"].to_numpy()
+    df_alignment["dynamic"] = ""
+    df_alignment["tempo_qpm"] = score_part_rows["tempo_qpm"].to_numpy()
+    df_alignment["start_sec"] = start_sec.map(format_three_decimals).to_numpy()
+    df_alignment["end_sec"] = [format_three_decimals(value) for value in end_sec]
+    df_alignment["dur_sec"] = dur_sec.map(format_three_decimals).to_numpy()
+    df_alignment["pitch_dev_cents"] = pitch_dev_cents
+    df_alignment["midi_velocity"] = midi_velocity.to_numpy()
+    df_alignment = df_alignment[ALIGNMENT_COLUMNS_1_1]
+    df_notes = df_alignment[NOTES_COLUMNS_1_1]
 
-    write_table(notes_frame, notes_path)
-    write_table(track_frame, alignment_path)
+    write_table(df_notes, notes_path)
+    write_table(df_alignment, alignment_path)
 
 
 def migrate_top_level_csv(path: Path) -> None:
@@ -454,6 +442,19 @@ def transpose_crueger_mei(mei_path: Path) -> int:
     return changed
 
 
+VOICE_TO_PART = {"1": "S", "2": "A", "3": "T", "4": "B"}
+
+
+def migrate_metadata_tracks_csv(path: Path) -> None:
+    df = read_table(path)
+    if list(df.columns[:3]) != ["song_id", "voice", "instrument"]:
+        raise ValueError(f"{path}: unexpected metadata_tracks header in v1.0.1: {list(df.columns)}.")
+    df = df.rename(columns={"voice": "part"})
+    df["part"] = df["part"].map(VOICE_TO_PART)
+    df["instrument"] = df["instrument"].map(lambda abbr: INSTRUMENT_STRINGS[Instrument(abbr)])
+    write_table(df, path)
+
+
 def migrate_release(source: Path, target: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(f"Source release directorynot found: {source}.")
@@ -487,26 +488,29 @@ def migrate_release(source: Path, target: Path) -> None:
         )
     
     try:
-        # 2. Replace known bad F0 annotations (copy-paste error in v1.0.1)
+        # 2. Migrate metadata_tracks.csv: voice (1-4) → part (SATB), instrument abbreviation → full name
+        migrate_metadata_tracks_csv(audio_root / "metadata_tracks.csv")
+
+        # 3. Replace known bad F0 annotations (copy-paste error in v1.0.1)
         replace_known_bad_04_bar_f0_annotations(target)
 
-        # 3. Mandatory VERSION tagging starting from v1.1.0
+        # 4. Mandatory VERSION tagging starting from v1.1.0
         for dir in (audio_root, video_root):
             (dir / "VERSION").write_text("1.1.0\n", encoding="utf-8")
 
-        # 4. The piece Crueger_AufAufMeinHerzMitFreuden is notated in D major but should be in C major to match the rest of the dataset. 
+        # 5. The piece Crueger_AufAufMeinHerzMitFreuden is notated in D major but should be in C major to match the rest of the dataset. 
         # We transpose it down 2 semitones by editing the MEI file.
         crueger = "Crueger_AufAufMeinHerzMitFreuden"
         transpose_crueger_mei(audio_root / crueger / f"{crueger}.mei")
 
-        # 5. Migrate per-chorale top-level csv
+        # 6. Migrate per-chorale top-level csv
         score_rows_by_chorale: dict[Path, pd.DataFrame] = {}
         for chorale_dir in sorted(path for path in audio_root.iterdir() if path.is_dir()):
             for path in sorted(chorale_dir.glob("*.csv")):
                 migrate_top_level_csv(path)
                 score_rows_by_chorale[chorale_dir] = read_table(path)
 
-        # 6. Migrate per-chorale note and alignment CSVs
+        # 7. Migrate per-chorale note and alignment CSVs
         for notes_csv_path in tqdm.tqdm(notes_csv_paths, desc="Migrating ChoraleBricks v1.0.1 to v1.1.0"):
             chorale_dir = notes_csv_path.parent.parent
             score_rows = score_rows_by_chorale.get(chorale_dir)
