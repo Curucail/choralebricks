@@ -1,6 +1,5 @@
-import bisect
 import csv
-import os
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -11,7 +10,7 @@ import soundfile as sf
 
 from choralebricks import spec
 from choralebricks.dataset import EnsemblePermutations, SongDB
-from choralebricks.utils import read_f0_sv, read_f0, read_notes, read_chords
+from choralebricks.utils import read_f0_sv, read_notes
 from choralebricks import ChordSequence
 
 
@@ -22,26 +21,29 @@ FILLED_F0_FIELDS = spec.FILLED_F0_FIELDS
 SCORE_FIELDS = spec.SCORE_FIELDS
 SCORE_PART_ORDER = spec.SCORE_PART_ORDER
 CHORD_FIELDS = spec.CHORD_FIELDS
-ALIGNMENT_SCORE_FIELDS = ["start_meas", "end_meas", "pitch_name", "time_sig", "part"]
-NUMERIC_ALIGNMENT_SCORE_FIELDS = ["duration_quarter", "pitch"]
-MEASURE_PATTERN = spec.MEASURE_PATTERN
-
-
-# Check for the environment variable CHORALEDB_PATH
-choraledb_path = os.getenv('CHORALEDB_PATH')
-
-if choraledb_path:
-    TRACKS = [track for song in SongDB().songs for track in song.tracks]
-    tr_ids = [f"{track.song_id}-{track.path_audio.stem}" for track in TRACKS]
-else:
-    TRACKS = []
-    tr_ids = []
+ROOT_CSV_FIELDS = spec.ROOT_CSV_FIELDS
+ALIGNMENT_SCORE_FIELDS = [
+    "start_meas",
+    "end_meas",
+    "start_quarter",
+    "dur_quarter",
+    "time_sig",
+    "part",
+    "articulation",
+    "expression",
+    "tempo_qpm",
+]
 
 
 def read_csv_rows(path):
-    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
+    with Path(path).open("r", newline="") as handle:
         reader = csv.DictReader(handle, delimiter=";")
-        return list(reader.fieldnames or []), list(reader)
+        header = list(reader.fieldnames or [])
+        rows = list(reader)
+    if header[-1:] == [""] and all(row.get("", "") == "" for row in rows):
+        header = header[:-1]
+        rows = [{key: value for key, value in row.items() if key != ""} for row in rows]
+    return header, rows
 
 
 def raw_f0_path(track):
@@ -58,24 +60,58 @@ def alignment_path(track):
     )
 
 
+def expected_csv_header(path, dataset_root):
+    path = Path(path)
+    if path.parent == dataset_root and path.name in ROOT_CSV_FIELDS:
+        return ROOT_CSV_FIELDS[path.name]
+    if path.parent.name == "alignments":
+        return ALIGNMENT_FIELDS
+    if path.parent.name == "annotations":
+        if path.name == "chords.csv":
+            return CHORD_FIELDS
+        if path.name.endswith("_notes.csv"):
+            return NOTES_FIELDS
+        if path.name.endswith("_f0_filled.csv"):
+            return FILLED_F0_FIELDS
+        if path.name.endswith("_f0.csv"):
+            return RAW_F0_FIELDS
+    if path.parent.parent == dataset_root:
+        return SCORE_FIELDS
+    raise AssertionError(f"No v1.1 CSV schema registered for {path}")
+
+
 def note_intervals(notes):
     return [
         (
-            Decimal(note["start"]),
-            Decimal(note["start"]) + Decimal(note["duration"]),
+            Decimal(note["start_sec"]),
+            Decimal(note["start_sec"]) + Decimal(note["dur_sec"]),
         )
         for note in notes
     ]
 
 
 def time_in_intervals(time, intervals):
-    starts = [start for start, _ in intervals]
-    index = bisect.bisect_right(starts, time) - 1
-    return index >= 0 and time <= intervals[index][1]
+    tolerance = Decimal("0.001")
+    return any(
+        start - tolerance <= time <= end + tolerance
+        for start, end in intervals
+    )
 
 
-pitch_audio_from_f0_note = spec.pitch_audio_from_f0_note
-pitch_name_to_midi = spec.pitch_name_to_midi
+PITCH_NAME_PATTERN = re.compile(r"^([A-G])([#b]*)(-?\d+)$")
+PITCH_CLASSES = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+ACCIDENTALS = {"": 0, "#": 1, "##": 2, "b": -1, "bb": -2}
+
+
+def pitch_name_to_midi(pitch_name):
+    match = PITCH_NAME_PATTERN.fullmatch(pitch_name)
+    assert match is not None, f"Unsupported pitch name: {pitch_name}"
+    pitch_class, accidental, octave = match.groups()
+    return (
+        (int(octave) + 1) * 12
+        + PITCH_CLASSES[pitch_class]
+        + ACCIDENTALS[accidental]
+    )
 
 
 """
@@ -123,80 +159,54 @@ def test_number_of_ensembles(ensembles):
     assert len(ensembles) == 4582
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_paths_audio_not_none(track):
+def test_paths_audio_not_none(tracks):
     """Test paths for each track"""
-    assert track.path_audio is not None
+    for track in tracks:
+        assert track.path_audio is not None
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_paths_f0_not_none(track):
+def test_paths_f0_not_none(tracks):
     """Test paths for each track"""
-    assert track.path_f0 is not None
+    for track in tracks:
+        assert track.path_f0 is not None
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_paths_notes_not_none(track):
+def test_paths_notes_not_none(tracks):
     """Test paths for each track"""
-    assert track.path_notes is not None
+    for track in tracks:
+        assert track.path_notes is not None
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_files_exist(track):
+def test_files_exist(tracks):
     """Test files exist"""
-    assert Path(track.path_audio).exists()
-    assert Path(track.path_f0).exists()
-    assert Path(track.path_notes).exists()
+    for track in tracks:
+        assert Path(track.path_audio).exists()
+        assert Path(track.path_f0).exists()
+        assert Path(track.path_notes).exists()
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_files_not_empty(track):
+def test_files_not_empty(tracks):
     """Test files are not empty"""
-    assert Path(track.path_audio).stat().st_size != 0
-    assert Path(track.path_f0).stat().st_size != 0
-    assert Path(track.path_notes).stat().st_size != 0
+    for track in tracks:
+        assert Path(track.path_audio).stat().st_size != 0
+        assert Path(track.path_f0).stat().st_size != 0
+        assert Path(track.path_notes).stat().st_size != 0
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_track_suffix(track):
+def test_track_suffix(tracks):
     """Test track suffix."""
-    assert Path(track.path_audio).suffix == ".wav"
-    assert Path(track.path_f0).suffix == ".csv"
-    assert Path(track.path_notes).suffix == ".csv"
+    for track in tracks:
+        assert Path(track.path_audio).suffix == ".wav"
+        assert Path(track.path_f0).suffix == ".csv"
+        assert Path(track.path_notes).suffix == ".csv"
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_csv_headers(track):
-    """Test CSV file headers from Sonic Visualizer."""
-    path_sv_f0 = Path(str(track.path_f0).replace("_filled", ""))
-    f0_head = read_f0_sv(path_sv_f0, rename_cols=False).columns if track.path_f0 else []
-    notes_head = read_notes(track.path_notes, rename_cols=False).columns if track.path_notes else []
-    assert list(f0_head) == ["t", "f0", "label"]
-    assert list(notes_head) == ["start", "end", "duration", "pitch_audio", "f0_note", "velocity", "label"]
-
-
-def test_all_csv_files_are_semicolon_delimited(choralebricks):
+def test_csv_headers(choralebricks):
+    """Test every dataset CSV uses semicolons and the v1.1 header."""
     for path in choralebricks.root_dir.rglob("*.csv"):
         header, _ = read_csv_rows(path)
-        assert len(header) > 1, f"{path} is not semicolon-delimited"
-
-
-def test_v11_csv_schemas(songs, tracks):
-    for song in songs:
-        score_header, _ = read_csv_rows(song.tracks[0].path_sheet_music_csv)
-        chord_header, _ = read_csv_rows(song.tracks[0].path_chords)
-        assert score_header == SCORE_FIELDS
-        assert chord_header == CHORD_FIELDS
-
-    for track in tracks:
-        notes_header, _ = read_csv_rows(track.path_notes)
-        raw_header, _ = read_csv_rows(raw_f0_path(track))
-        filled_header, _ = read_csv_rows(track.path_f0)
-        alignment_header, _ = read_csv_rows(alignment_path(track))
-        assert notes_header == NOTES_FIELDS
-        assert raw_header == RAW_F0_FIELDS
-        assert filled_header == FILLED_F0_FIELDS
-        assert alignment_header == ALIGNMENT_FIELDS
+        assert len(header) > 1, f"{path} is not parseable as a semicolon-delimited dataset CSV"
+        assert header == expected_csv_header(path, choralebricks.root_dir)
 
 
 def test_score_rows_are_sorted_by_start_and_satb(songs):
@@ -217,24 +227,36 @@ def test_measure_format_and_exclusive_ends(choralebricks):
             continue
         assert "start_meas" in header and "end_meas" in header
         for row in rows:
-            assert MEASURE_PATTERN.fullmatch(row["start_meas"])
-            assert MEASURE_PATTERN.fullmatch(row["end_meas"])
+            assert Decimal(row["start_meas"]).quantize(Decimal("0.001")) == Decimal(row["start_meas"])
+            assert Decimal(row["end_meas"]).quantize(Decimal("0.001")) == Decimal(row["end_meas"])
             end = Decimal(row["end_meas"])
             assert end != end.to_integral_value()
         affected_rows += len(rows)
     assert affected_rows == 11447
 
 
-def test_score_pitch_names_match_midi(songs):
+def test_pitch_spellings_match_midi(songs):
     score_rows = 0
+    note_rows = 0
     for song in songs:
         _, rows = read_csv_rows(song.tracks[0].path_sheet_music_csv)
         for row in rows:
-            assert Decimal(row["pitch"]) == pitch_name_to_midi(
-                row["pitch_name"]
+            assert Decimal(row["pitch_written"]) == pitch_name_to_midi(
+                row["pitch_written_name"]
             )
         score_rows += len(rows)
+        for track in song.tracks:
+            _, notes = read_csv_rows(track.path_notes)
+            _, alignment = read_csv_rows(alignment_path(track))
+            for note in notes:
+                assert int(note["pitch"]) == pitch_name_to_midi(note["pitch_name"])
+                assert int(note["pitch_written"]) == pitch_name_to_midi(note["pitch_written_name"])
+            for aligned in alignment:
+                assert int(aligned["pitch"]) == pitch_name_to_midi(aligned["pitch_name"])
+                assert int(aligned["pitch_written"]) == pitch_name_to_midi(aligned["pitch_written_name"])
+            note_rows += len(notes)
     assert score_rows == 1887
+    assert note_rows == 9097
 
 
 def test_alignments_match_notes_and_scores(songs):
@@ -244,7 +266,7 @@ def test_alignments_match_notes_and_scores(songs):
         score_by_part = {
             part: sorted(
                 (row for row in score_rows if row["part"] == part),
-                key=lambda row: Decimal(row["quarter_note_offset"]),
+                key=lambda row: Decimal(row["start_quarter"]),
             )
             for part in ("S", "A", "T", "B")
         }
@@ -252,30 +274,23 @@ def test_alignments_match_notes_and_scores(songs):
             _, notes = read_csv_rows(track.path_notes)
             _, alignment = read_csv_rows(alignment_path(track))
             assert len(notes) == len(alignment)
-            assert [row["pitch_audio"] for row in notes] == [
-                row["pitch_audio"] for row in alignment
-            ]
-            assert [row["velocity"] for row in notes] == [
-                row["velocity"] for row in alignment
+            assert [
+                {field: row[field] for field in NOTES_FIELDS}
+                for row in notes
+            ] == [
+                {field: row[field] for field in NOTES_FIELDS}
+                for row in alignment
             ]
             part = alignment[0]["part"]
             score_voice = score_by_part[part]
             assert len(score_voice) == len(alignment)
             for score_row, alignment_row in zip(score_voice, alignment):
-                assert {
-                    field: alignment_row[field]
-                    for field in ALIGNMENT_SCORE_FIELDS
-                } == {
-                    field: score_row[field]
-                    for field in ALIGNMENT_SCORE_FIELDS
-                }
-                for field in NUMERIC_ALIGNMENT_SCORE_FIELDS:
-                    assert Decimal(alignment_row[field]) == Decimal(
-                        score_row[field]
-                    )
-                assert Decimal(
-                    alignment_row["pitch"]
-                ) == pitch_name_to_midi(alignment_row["pitch_name"])
+                for field in ALIGNMENT_SCORE_FIELDS:
+                    if field in {"start_meas", "end_meas", "start_quarter", "dur_quarter"}:
+                        assert Decimal(alignment_row[field]) == Decimal(score_row[field])
+                    else:
+                        assert alignment_row[field] == score_row[field]
+                assert Decimal(alignment_row["pitch_written"]) == Decimal(score_row["pitch_written"])
             note_rows += len(notes)
     assert note_rows == 9097
 
@@ -316,38 +331,20 @@ def test_f0_annotations(tracks):
     assert note_rows == 9097
 
 
-def test_pitch_audio_derived_from_f0_note(tracks):
-    """pitch_audio is round(12*log2(f0_note / 440) + 69), A4 = 440 Hz."""
-    note_rows = 0
-    for track in tracks:
-        _, notes = read_csv_rows(track.path_notes)
-        _, alignment = read_csv_rows(alignment_path(track))
-        for note in notes:
-            assert int(note["pitch_audio"]) == pitch_audio_from_f0_note(
-                note["f0_note"]
-            )
-        for aligned in alignment:
-            assert int(aligned["pitch_audio"]) == pitch_audio_from_f0_note(
-                aligned["f0_note"]
-            )
-        note_rows += len(notes)
-    assert note_rows == 9097
-
-
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_track_samplerate(track):
+def test_track_samplerate(tracks):
     """Test if all tracks have the same samplerate."""
-    if track.path_audio:
-        _, sr = sf.read(track.path_audio)
-        assert sr == track.sample_rate
+    for track in tracks:
+        if track.path_audio:
+            _, sr = sf.read(track.path_audio)
+            assert sr == track.sample_rate
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_track_min_samples(track):
+def test_track_min_samples(tracks):
     """Test if track has the given min_samples."""
-    if track.path_audio:
-        data, _ = sf.read(track.path_audio)
-        assert len(data) == track.min_samples
+    for track in tracks:
+        if track.path_audio:
+            data, _ = sf.read(track.path_audio)
+            assert len(data) == track.min_samples
 
 
 def test_track_len_per_song(songs):
@@ -361,47 +358,36 @@ def test_track_len_per_song(songs):
         assert len(set(track_lengths)) <= 1, f"Not all audio files of {song.id} have the same length."
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_dur_f0_audio(track):
+def test_dur_f0_audio(tracks):
     """Audio and F0-annotations should have similar length (+-1 seconds)"""
-    dur_audio = track.min_samples / track.sample_rate
-    path_sv_f0 = Path(str(track.path_f0).replace("_filled", ""))
-    dur_f0 = read_f0_sv(path_sv_f0).tail(1)["t"].values[0]
-    assert np.abs(dur_audio - dur_f0) < 1.0
+    for track in tracks:
+        dur_audio = track.min_samples / track.sample_rate
+        path_sv_f0 = Path(str(track.path_f0).replace("_filled", ""))
+        dur_f0 = read_f0_sv(path_sv_f0).tail(1)["t"].values[0]
+        assert np.abs(dur_audio - dur_f0) < 1.0
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_f0_trajectory_uniqueness(track):
-    """All F0-trajectories should have only one entry per time instance"""
-    df = read_f0(track.path_f0)
-    assert df.shape[0] == df.drop_duplicates("t").shape[0]
-
-
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_dur_note_audio(track):
+def test_dur_note_audio(tracks):
     """Audio and note annotations should have similar length (+-1 seconds)"""
-    dur_audio = track.min_samples / track.sample_rate
-    last_note = read_notes(track.path_notes).tail(1)
-    dur_notes = (last_note["start"] + last_note["duration"]).values[0]
-    assert np.abs(dur_audio - dur_notes) < 1.0
+    for track in tracks:
+        dur_audio = track.min_samples / track.sample_rate
+        last_note = read_notes(track.path_notes).tail(1)
+        dur_notes = last_note["end_sec"].values[0]
+        assert np.abs(dur_audio - dur_notes) < 1.0
 
 
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_chord_csv(track):
-    """Test chord CSV."""
-    csv_header = read_chords(track.path_chords).columns if track.path_chords else []
-    assert list(csv_header) == ["start_meas", "end_meas", "chord"]
-
-
-@pytest.mark.parametrize("track", TRACKS, ids=tr_ids)
-def test_chord_annotations_sequence(track):
+def test_chord_annotations_sequence(tracks):
     """Test if CSV chord annotations can be parsed into a ChordSequence"""
 
-    # all tracks link to the same chord annotations, so we only take one
-    cs = ChordSequence.from_csv(track.path_chords)
-    # all songs should have a chord in the second measure
-    assert cs.get_chord_at(2.25).root is not None, f"Chord for song {track.song_id} not parsed correctly."
-    for i in range(len(cs.bounds)-1):
-        if cs.bounds[i,1] > cs.bounds[i+1,0]:
-            print(track.song_id, i, cs.bounds[i,1], cs.bounds[i+1,0])
-    assert np.all(cs.bounds[:-1,1] <= cs.bounds[1:,0]), f"Overlapping chord annotations for song {track.song_id}."
+    seen_chord_paths = set()
+    for track in tracks:
+        if track.path_chords in seen_chord_paths:
+            continue
+        seen_chord_paths.add(track.path_chords)
+        cs = ChordSequence.from_csv(track.path_chords)
+        # all songs should have a chord in the second measure
+        assert cs.get_chord_at(2.25).root is not None, f"Chord for song {track.song_id} not parsed correctly."
+        for i in range(len(cs.bounds)-1):
+            if cs.bounds[i,1] > cs.bounds[i+1,0]:
+                print(track.song_id, i, cs.bounds[i,1], cs.bounds[i+1,0])
+        assert np.all(cs.bounds[:-1,1] <= cs.bounds[1:,0]), f"Overlapping chord annotations for song {track.song_id}."

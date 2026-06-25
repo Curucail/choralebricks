@@ -86,22 +86,19 @@ def main():
     i = 0
     for _, row in score.iterrows():
         note = notes.iloc[i]
-        assert row.pitch == note.pitch_audio
-        assert note.pitch_audio == np.round(
-            choralebricks.utils.hz2midi(note.f0_note, f_ref=442)
-        ).astype(int)
+        assert int(row.pitch_written) == int(note.pitch_written)
         chord = chord_seq.get_chord_at(row.start_meas)
         mask = (
-            (t_f0 >= note.start)
-            & (t_f0 <= (note.start + note.duration))
+            (t_f0 >= note.start_sec)
+            & (t_f0 <= note.end_sec)
         )
         # extend mask a bit for smoother synthesis
         mask = maximum_filter1d(mask, 11, mode='constant', cval=0)
 
-        f0_et[mask] = choralebricks.utils.midi2hz(row.pitch, f_ref=442)
+        f0_et[mask] = choralebricks.utils.midi2hz(row.pitch_written, f_ref=440.0)
         f0_ji[mask] = choralebricks.utils.midi2hz(
-            row.pitch + ji_offset[chord.get_interval(row.pitch)],
-            f_ref=442,
+            row.pitch_written + ji_offset[chord.get_interval(row.pitch_written)],
+            f_ref=440.0,
         )
         i += 1
 

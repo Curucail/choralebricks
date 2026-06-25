@@ -11,6 +11,7 @@ In ISMIR, vol. 5, pp. 66-71. 2005.
 """
 import math
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -85,7 +86,10 @@ class ChordSequence():
         -------
         seq : ChordSequence
         """
-        df = pd.read_csv(file_path, sep=";")
+        path = Path(file_path)
+        df = pd.read_csv(path, sep=";")
+        if list(df.columns) == ["start_meas,end_meas,chord"]:
+            df = pd.read_csv(path, sep=",")
 
         start_meas = df["start_meas"].to_numpy()
         end_meas = df["end_meas"].to_numpy()

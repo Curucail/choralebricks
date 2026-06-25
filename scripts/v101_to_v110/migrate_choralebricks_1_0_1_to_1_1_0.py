@@ -30,8 +30,8 @@ TOP_LEVEL_COLUMNS_1_1 = [
     "start_quarter",
     "dur_quarter",
     "time_sig",
-    "pitch",
-    "pitch_name",
+    "pitch_written",
+    "pitch_written_name",
     "part",
     "instrument",
     "articulation",
@@ -52,6 +52,7 @@ ALIGNMENT_COLUMNS_1_1 = [
     "pitch",
     "pitch_name",
     "pitch_written",
+    "pitch_written_name",
     "part",
     "instrument",
     "articulation",
@@ -71,6 +72,7 @@ NOTES_COLUMNS_1_1 = [
     "pitch",
     "pitch_name",
     "pitch_written",
+    "pitch_written_name",
     "pitch_dev_cents",
     "midi_velocity",
 ]
@@ -95,15 +97,27 @@ SPECIAL_DOWN_OCTAVE_ROWS = {
 
 def read_table(path: Path) -> pd.DataFrame:
     """Read a CSV as all-string columns, preserving values and empty cells verbatim."""
-    rows = pd.read_csv(path, sep=";", dtype=str, keep_default_na=False, encoding="utf-8-sig").fillna("")
+    rows = pd.read_csv(path, sep=";", dtype=str, keep_default_na=False).fillna("")
     if rows.shape[1] == 1 and "," in rows.columns[0]:
-        rows = pd.read_csv(path, sep=",", dtype=str, keep_default_na=False, encoding="utf-8-sig").fillna("")
+        rows = pd.read_csv(path, sep=",", dtype=str, keep_default_na=False).fillna("")
     return rows
 
 
 def write_table(frame: pd.DataFrame, path: Path) -> None:
     # Always use semicolon as the separator, no index column, and Unix line endings.
     frame.to_csv(path, sep=";", index=False, lineterminator="\n", encoding="utf-8")
+
+
+def migrate_chord_csv(path: Path) -> None:
+    df_chords = read_table(path)
+    columns_actual = list(df_chords.columns)
+    if columns_actual != ["start_meas", "end_meas", "chord"]:
+        raise ValueError(f"{path}: unexpected chord CSV header {columns_actual}.")
+    df_chords["start_meas"] = df_chords["start_meas"].map(format_measure_column_value)
+    df_chords["end_meas"] = df_chords["end_meas"].map(
+        lambda value: format_measure_column_value(value, exclusive_end=True)
+    )
+    write_table(df_chords, path)
 
 
 def compute_end_times(starts, durations) -> list[str]:
@@ -264,6 +278,7 @@ def migrate_notes_and_alignment_csvs(
     df_alignment["dur_quarter"] = df_alignment["dur_quarter"].map(strip_numeric_leading_zeros)
     df_alignment["pitch"] = [performance_pitch(p, instrument, part) for p in df_alignment["pitch"]]
     df_alignment = apply_special_pitch_corrections(df_alignment, song_id, track_stem)
+    df_alignment["pitch_name"] = [midi_to_pitch_name(int(pitch)) for pitch in df_alignment["pitch"]]
 
     pitch_dev_cents = [
         pitch_deviation_cents(f0, pitch)
@@ -271,6 +286,7 @@ def migrate_notes_and_alignment_csvs(
     ]
 
     df_alignment["start_quarter"] = score_part_rows["start_quarter"].to_numpy()
+    df_alignment["pitch_written_name"] = score_part_rows["pitch_written_name"].to_numpy()
     df_alignment["instrument"] = INSTRUMENT_STRINGS[Instrument(instrument)]
     df_alignment["articulation"] = score_part_rows["articulation"].to_numpy()
     df_alignment["expression"] = score_part_rows["expression"].to_numpy()
@@ -307,7 +323,8 @@ def migrate_top_level_csv(path: Path) -> None:
     df_top_level = df_top_level.rename(
         columns={
             "duration_quarterLength": "dur_quarter",
-            "pitchName": "pitch_name",
+            "pitch": "pitch_written",
+            "pitchName": "pitch_written_name",
             "timeSig": "time_sig",
             "volume": "midi_velocity",
             "quarternoteoffset": "start_quarter",
@@ -315,7 +332,7 @@ def migrate_top_level_csv(path: Path) -> None:
         }
     )
     df_top_level = df_top_level.drop(columns=["grace", "midiProgram", "pitchWritten", "pitchNameWritten"])
-    df_top_level["pitch_name"] = df_top_level["pitch_name"].str.replace("-", "b", regex=False)
+    df_top_level["pitch_written_name"] = df_top_level["pitch_written_name"].str.replace("-", "b", regex=False)
     
     df_top_level["start_meas"] = df_top_level["start_meas"].map(format_measure_column_value)
     df_top_level["end_meas"] = df_top_level["end_meas"].map(lambda value: format_measure_column_value(value, exclusive_end=True))
@@ -576,6 +593,9 @@ def migrate_release(source: Path, target: Path) -> None:
         # 6. Migrate per-chorale top-level csv
         score_rows_by_chorale: dict[Path, pd.DataFrame] = {}
         for chorale_dir in sorted(path for path in audio_root.iterdir() if path.is_dir()):
+            chord_path = chorale_dir / "annotations" / "chords.csv"
+            if chord_path.is_file():
+                migrate_chord_csv(chord_path)
             for path in sorted(chorale_dir.glob("*.csv")):
                 migrate_top_level_csv(path)
                 score_rows_by_chorale[chorale_dir] = read_table(path)

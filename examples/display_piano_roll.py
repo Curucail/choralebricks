@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 from choralebricks.generators import tracks
-from choralebricks.utils import read_notes, read_sheet_music_csv
+from choralebricks.utils import midi2hz, read_notes, read_sheet_music_csv
 
 
 def main():
@@ -37,7 +37,7 @@ def main():
 
         ax.add_patch(
             plt.Rectangle(
-                (row["start_meas"], row["pitch"] - 0.5),
+                (row["start_meas"], row["pitch_written"] - 0.5),
                 row["dur_meas"],
                 1,
                 color=color,
@@ -80,10 +80,11 @@ def main():
 
     # Note Annotations
     for _, row in cur_notes.iterrows():
+        note_hz = midi2hz(row["pitch"] + row["pitch_dev_cents"] / 100.0, f_ref=440.0)
         ax.add_patch(
             plt.Rectangle(
-                (row["start_sec"], row["f0_note"] - 5),
-                row["duration_sec"],
+                (row["start_sec"], note_hz - 5),
+                row["dur_sec"],
                 10,
                 color=color,
                 alpha=0.5
@@ -100,7 +101,7 @@ def main():
     plt.grid(alpha=0.3)
 
     last_note = cur_notes.tail(1)
-    plt.xlim((0, 2 + last_note["start_sec"].values[0] + last_note["duration_sec"].values[0]))
+    plt.xlim((0, 2 + last_note["end_sec"].values[0]))
     plt.ylim((0, 600))
 
     plt.show()

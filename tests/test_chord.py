@@ -3,8 +3,10 @@
 import pytest
 
 import numpy as np
+import shutil
+from pathlib import Path
 
-from choralebricks import Chord
+from choralebricks import Chord, ChordSequence
 
 def test_chords():
     # test the chord parser
@@ -30,3 +32,23 @@ def test_chords():
 
     c = Chord("X")
     assert c.is_nc() == True
+
+
+@pytest.mark.parametrize("delimiter", [";", ","])
+def test_chord_sequence_from_csv_accepts_dataset_delimiters(delimiter):
+    tmp_dir = Path(".tmp") / f"test_chords_{ord(delimiter)}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    path = tmp_dir / "chords.csv"
+    path.write_text(
+        f"start_meas{delimiter}end_meas{delimiter}chord\n"
+        f"0.000{delimiter}1.000{delimiter}C:maj\n"
+        f"1.000{delimiter}2.000{delimiter}G:maj\n",
+        encoding="utf-8",
+    )
+
+    try:
+        sequence = ChordSequence.from_csv(path)
+        assert sequence.get_chord_at(0.5).root_str == "C"
+        assert sequence.get_chord_at(1.5).root_str == "G"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
