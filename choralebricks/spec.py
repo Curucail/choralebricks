@@ -46,6 +46,7 @@ ALIGNMENT_FIELDS = [
     "time_sig",
     "pitch",
     "pitch_name",
+    "pitch_written",
     "part",
     "instrument",
     "articulation",
@@ -58,7 +59,7 @@ ALIGNMENT_FIELDS = [
     "pitch_dev_cents",
     "midi_velocity",
 ]
-NOTES_FIELDS = ["start_sec", "end_sec", "dur_sec", "pitch", "pitch_dev_cents", "midi_velocity"]
+NOTES_FIELDS = ["start_sec", "end_sec", "dur_sec", "pitch", "pitch_name", "pitch_written", "pitch_dev_cents", "midi_velocity"]
 RAW_F0_FIELDS = ["t", "f0", "label"]
 FILLED_F0_FIELDS = ["t", "f0"]
 CHORD_FIELDS = ["start_meas", "end_meas", "chord"]

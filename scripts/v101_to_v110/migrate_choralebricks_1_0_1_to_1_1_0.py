@@ -43,7 +43,23 @@ TOP_LEVEL_COLUMNS_1_1 = [
     "midi_velocity",
 ]
 ALIGNMENT_COLUMNS_1_1 = [
-    *TOP_LEVEL_COLUMNS_1_1[:-1],
+    "start_meas",
+    "end_meas",
+    "start_quarter",
+    "dur_quarter",
+    "time_sig",
+    "pitch",
+    "pitch_name",
+    "pitch_written",
+    "part",
+    "instrument",
+    "articulation",
+    "expression",
+    "dynamic",
+    "tempo_qpm",
+    "start_sec",
+    "end_sec",
+    "dur_sec",
     "pitch_dev_cents",
     "midi_velocity",
 ]
@@ -52,6 +68,8 @@ NOTES_COLUMNS_1_1 = [
     "end_sec",
     "dur_sec",
     "pitch",
+    "pitch_name",
+    "pitch_written",
     "pitch_dev_cents",
     "midi_velocity",
 ]
@@ -179,6 +197,7 @@ def migrate_notes_and_alignment_csvs(
     dur_sec = df_notes["DURATION"]
     end_sec = compute_end_times(start_sec, dur_sec)
 
+    df_alignment["pitch_written"] = df_alignment["pitch_sheet_music"].map(str)
     df_alignment = df_alignment.drop(columns=["f0_mean", "pitch_audio"])
     df_alignment = df_alignment.rename(columns={
         "duration_quarterLength": "dur_quarter",
