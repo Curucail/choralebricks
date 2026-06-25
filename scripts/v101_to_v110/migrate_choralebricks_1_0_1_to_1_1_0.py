@@ -23,6 +23,7 @@ MEI_TAG = f"{{{MEI_NAMESPACE}}}"
 PITCH_CLASSES = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 ACCIDENTAL_TO_OFFSET = {"ff": -2, "f": -1, "n": 0, "s": 1, "ss": 2}
 OFFSET_TO_ACCIDENTAL = {value: key for key, value in ACCIDENTAL_TO_OFFSET.items()}
+_MIDI_PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 TOP_LEVEL_COLUMNS_1_1 = [
     "start_meas",
     "end_meas",
@@ -74,6 +75,23 @@ NOTES_COLUMNS_1_1 = [
     "midi_velocity",
 ]
 
+SPECIAL_DOWN_OCTAVE_ROWS = {
+    ("Jan_DuGrosserSchmerzensmann", "04_tb", "9.889"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.556"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "13.000"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "04_bcl", "10.333"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.000"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.889"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "11.889"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.667"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.222"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "04_bs", "11.222"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.333"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.833"),
+    ("Vulpius_ChristusDerIstMeinLeben", "04_bs", "5.000"),
+    ("Crueger_AufAufMeinHerzMitFreuden", "03_bcl", "12.500"),
+}
+
 
 def read_table(path: Path) -> pd.DataFrame:
     """Read a CSV as all-string columns, preserving values and empty cells verbatim."""
@@ -110,6 +128,10 @@ def strip_numeric_leading_zeros(value: str) -> str:
     return formatted.lstrip("0") or "0"
 
 
+def midi_to_pitch_name(midi: int) -> str:
+    return f"{_MIDI_PITCH_NAMES[midi % 12]}{midi // 12 - 1}"
+
+
 def sort_score_rows(frame: pd.DataFrame) -> pd.DataFrame:
     part_order = {"S": 0, "A": 1, "T": 2, "B": 3}
     keyed = frame.assign(
@@ -128,6 +150,12 @@ def instrument_abbreviation_from_track_path(path: Path) -> str:
     return instrument_code
 
 
+def song_id_from_track_path(path: Path) -> str:
+    if path.parent.name == "annotations":
+        return path.parent.parent.name
+    return path.parent.name
+
+
 def pitch_deviation_cents(f0_hz: float, pitch: str, a4: float = 440.0) -> str:
     if f0_hz <= 0.0:
         return ""
@@ -135,15 +163,31 @@ def pitch_deviation_cents(f0_hz: float, pitch: str, a4: float = 440.0) -> str:
     return str(round(1200 * math.log2(f0_hz / reference_hz)))
 
 
-def performance_pitch(score_pitch: str, instrument: str, song_id: str = "") -> str:
+def performance_pitch(score_pitch: str, instrument: str, part: str = "") -> str:
     pitch = int(score_pitch)
     if instrument == "tba":
         pitch -= 12
     elif instrument == "fl":
         pitch += 12
-    elif instrument == "bar" and song_id == "Anonymous_AusMeinesHerzensGrunde":
+    elif instrument == "bar" and part == "S":
         pitch -= 12
     return str(pitch)
+
+
+def apply_special_pitch_corrections(
+    df_alignment: pd.DataFrame,
+    song_id: str,
+    track_stem: str,
+) -> pd.DataFrame:
+    corrected = df_alignment.copy()
+    for idx, row in corrected.iterrows():
+        key = (song_id, track_stem, str(row["start_meas"]))
+        if key not in SPECIAL_DOWN_OCTAVE_ROWS:
+            continue
+        midi = int(corrected.at[idx, "pitch"]) - 12
+        corrected.at[idx, "pitch"] = str(midi)
+        corrected.at[idx, "pitch_name"] = midi_to_pitch_name(midi)
+    return corrected
 
 
 def rows_by_part(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -171,8 +215,9 @@ def migrate_notes_and_alignment_csvs(
     if len(df_notes) != len(df_alignment):
         raise ValueError(f"{notes_path}: {len(df_notes)} notes do not match {len(df_alignment)} alignment rows.")
 
+    song_id = song_id_from_track_path(notes_path)
+    track_stem = notes_path.name.removesuffix("_notes.csv")
     instrument = instrument_abbreviation_from_track_path(notes_path)
-    song_id = notes_path.parent.parent.name
     part = df_alignment["part"].iloc[0]
     if not (df_alignment["part"] == part).all():
         raise ValueError(f"{alignment_path}: expected exactly one part per track alignment.")
@@ -217,7 +262,8 @@ def migrate_notes_and_alignment_csvs(
         lambda value: format_measure_column_value(value, exclusive_end=True)
     )
     df_alignment["dur_quarter"] = df_alignment["dur_quarter"].map(strip_numeric_leading_zeros)
-    df_alignment["pitch"] = [performance_pitch(p, instrument, song_id) for p in df_alignment["pitch"]]
+    df_alignment["pitch"] = [performance_pitch(p, instrument, part) for p in df_alignment["pitch"]]
+    df_alignment = apply_special_pitch_corrections(df_alignment, song_id, track_stem)
 
     pitch_dev_cents = [
         pitch_deviation_cents(f0, pitch)
