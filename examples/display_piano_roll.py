@@ -10,7 +10,7 @@ def main():
 
     print(
         cur_track.path_audio.name,
-        cur_track.voice,
+        cur_track.part,
         cur_track.instrument,
         cur_track.instrument_type
     )
@@ -69,13 +69,13 @@ def main():
     
     fig, ax = plt.subplots(1, 1, figsize=(12, 5))
 
-    if cur_track.voice == 1:
+    if cur_track.part == "S":
         color = "red"
-    if cur_track.voice == 2:
+    if cur_track.part == "A":
         color = "green"
-    if cur_track.voice == 3:
+    if cur_track.part == "T":
         color = "orange"
-    if cur_track.voice == 4:
+    if cur_track.part == "B":
         color = "magenta"
 
     # Note Annotations

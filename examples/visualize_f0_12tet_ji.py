@@ -13,13 +13,6 @@ import matplotlib.pyplot as plt
 
 import choralebricks
 
-voice2str = {
-    1: "S",
-    2: "A",
-    3: "T",
-    4: "B",
-}
-
 # JI offset by scale degree in semitones (using 7-limit tritone)
 ji_offset = np.array([0, 11.7, 3.9, 15.6, -13.7, -2, -17.5, 2, 13.7, -15.6, 17.6, -11.7]) / 100
 
@@ -37,9 +30,9 @@ def main():
     # load chord annotation as a ChordSequence
     chord_seq = choralebricks.ChordSequence.from_csv(track.path_chords)
 
-    # load score as a Pandas data frame and select only the required voice/part
+    # load score as a Pandas data frame and select only the required part
     score_all = pd.read_csv(track.path_sheet_music_csv, delimiter=";")
-    score = score_all[score_all.part == voice2str[track.voice]]
+    score = score_all[score_all.part == track.part]
 
     # load F0 annotations
     f0_a = np.loadtxt(track.path_f0, skiprows=1, usecols=(0, 1), delimiter=";")

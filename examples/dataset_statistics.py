@@ -15,9 +15,9 @@ import seaborn as sns
 
 from choralebricks.dataset import SongDB, EnsemblePermutations
 from choralebricks.constants import (
-    Instrument, Voices, VOICE_COLORS, VOICE_STRINGS
+    Instrument, Voices, VOICE_COLORS, VOICE_STRINGS, VOICE_STRINGS_SHORT
 )
-from choralebricks.utils import voice_to_name, get_voice_from_int, read_notes
+from choralebricks.utils import voice_to_name, read_notes
 from choralebricks.generators import tracks
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ def collect_data(cbdb):
 
             cur_track_info = dict()
             cur_track_info["song_id"] = cur_track.song_id
-            cur_track_info["voice"] = cur_track.voice
+            cur_track_info["part"] = cur_track.part
             cur_track_info["instrument"] = cur_track.instrument.value
             cur_track_info["instrument_type"] = cur_track.instrument_type.value
             cur_track_info["performer"] = cur_track.performer
@@ -89,9 +89,9 @@ def print_tables(df_songs, df_tracks, df_performers=None):
     print(f"Avg. Tracks per Song: {df_tracks.groupby('song_id').size().mean()}")
 
     print(SEPARATOR)
-    print("#Tracks per Voice")
+    print("#Tracks per Part")
     print(SEPARATOR)
-    print(df_tracks.groupby("voice").size())
+    print(df_tracks.groupby("part").size())
 
     print(SEPARATOR)
     print("#Tracks per Instrument Type")
@@ -122,9 +122,9 @@ def print_tables(df_songs, df_tracks, df_performers=None):
     print(df_songs_grouped)
 
     print(SEPARATOR)
-    print("#Tracks per Voice and Instrument")
+    print("#Tracks per Part and Instrument")
     print(SEPARATOR)
-    print(df_tracks.groupby(["voice", "instrument"]).agg(
+    print(df_tracks.groupby(["part", "instrument"]).agg(
         size=("audio_dur", "size"),
         sum=("audio_dur", "sum"),
         )
@@ -148,17 +148,17 @@ def print_tables(df_songs, df_tracks, df_performers=None):
 
 
 def figure_tracks_per_voice_instrument(df_tracks):
-    # Figure: Tracks per Instrument and Voice
-    grouped = df_tracks.groupby(["voice", "instrument"]).size()
-    grouped = grouped.reset_index().sort_values(by=["voice", 0], ascending=True)
-    grouped = grouped.set_index(["voice", "instrument"])
+    # Figure: Tracks per Instrument and Part
+    grouped = df_tracks.groupby(["part", "instrument"]).size()
+    grouped = grouped.reset_index().sort_values(by=["part", 0], ascending=True)
+    grouped = grouped.set_index(["part", "instrument"])
 
     fig, ax = plt.subplots(figsize=(10, 8))
 
     y_tick_labels = []
     legend_entries = []
     for cur_i, (cur_idx, cur_box) in enumerate(grouped.iterrows()):
-        cur_voice = get_voice_from_int(cur_idx[0])
+        cur_voice = VOICE_STRINGS_SHORT[cur_idx[0]]
         cur_instrument = Instrument(cur_idx[1])
         cur_color = VOICE_COLORS[cur_voice]
 
@@ -216,9 +216,9 @@ def figure_pitch_hist_SATB():
         try:
             cur_notes = read_notes(cur_track.path_notes)
 
-            notes[Voices(cur_track.voice)].extend(cur_notes["pitch"].tolist())
+            notes[VOICE_STRINGS_SHORT[cur_track.part]].extend(cur_notes["pitch"].tolist())
         except FileNotFoundError:
-            print(f"Skipping notes from {cur_track.song_id}_{cur_track.voice}_{cur_track.instrument}. Reason: No annotations.")
+            print(f"Skipping notes from {cur_track.song_id}_{cur_track.part}_{cur_track.instrument}. Reason: No annotations.")
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 6),sharex=True, sharey=True)
     axes_flat = axes.ravel()

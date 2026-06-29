@@ -10,7 +10,7 @@ def main():
 
     print(
         cur_track.path_audio.name,
-        cur_track.voice,
+        cur_track.part,
         cur_track.instrument,
         cur_track.instrument_type
     )

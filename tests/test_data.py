@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import soundfile as sf
 
-from choralebricks import spec
+from choralebricks import format_spec_csv as spec
 from choralebricks.dataset import EnsemblePermutations, SongDB
 from choralebricks.utils import read_f0_sv, read_notes
 from choralebricks import ChordSequence

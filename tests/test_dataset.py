@@ -19,30 +19,30 @@ def mockupdb():
     """Mockup database with a single song."""
 
     def mocktrack(
-        voice: int,
+        part: str,
         instrument: Instrument
     ):
 
         track = Track(
             song_id="test_song_01",
-            path_audio=f"{instrument.value}_{voice}.wav",
+            path_audio=f"{instrument.value}_{part}.wav",
             num_channels=1,
             sample_rate=44100,
             min_samples=441000,
-            voice=voice,
+            part=part,
             instrument=instrument
         )
 
         return track
 
     song01_tracks = [
-        mocktrack(1, Instrument.TRUMPET),
-        mocktrack(1, Instrument.CLARINET),
-        mocktrack(2, Instrument.TRUMPET),
-        mocktrack(2, Instrument.CLARINET),
-        mocktrack(3, Instrument.BARITONE),
-        mocktrack(4, Instrument.BARITONE),
-        mocktrack(4, Instrument.TUBA),
+        mocktrack("S", Instrument.TRUMPET),
+        mocktrack("S", Instrument.CLARINET),
+        mocktrack("A", Instrument.TRUMPET),
+        mocktrack("A", Instrument.CLARINET),
+        mocktrack("T", Instrument.BARITONE),
+        mocktrack("B", Instrument.BARITONE),
+        mocktrack("B", Instrument.TUBA),
     ]
 
     song_01 = Song(Path("song_01"))

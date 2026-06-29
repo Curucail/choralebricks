@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 
 NUM_VOICES = 4
 
+# Reference tuning frequency for A4 used across the dataset (Hz).
+A4_REFERENCE_HZ = 442.0
+
 class Voices(Enum):
     """
     Available voices (SATB).

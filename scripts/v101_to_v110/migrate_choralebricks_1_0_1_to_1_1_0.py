@@ -14,7 +14,7 @@ import pandas as pd
 import tqdm
 
 from choralebricks.constants import Instrument, INSTRUMENT_STRINGS
-from choralebricks.spec import format_measure_column_value, velocity_from_scalar
+from choralebricks.format_spec_csv import format_measure_column_value, velocity_from_scalar
 
 
 # Shared MEI music-theory lookups (used by the transposition helpers below).

@@ -18,6 +18,9 @@ import pandas as pd
 
 from lark import Lark, Transformer
 
+from choralebricks.format_spec_csv import CHORD_FIELDS
+from choralebricks.utils import read_validated_csv
+
 class Chord():
     """Representation of a chord provided in Harte notation
     """
@@ -87,9 +90,8 @@ class ChordSequence():
         seq : ChordSequence
         """
         path = Path(file_path)
-        df = pd.read_csv(path, sep=";")
-        if list(df.columns) == ["start_meas,end_meas,chord"]:
-            df = pd.read_csv(path, sep=",")
+        # Validate the v1.1 chord schema; a mismatch raises SchemaValidationError.
+        df = read_validated_csv(path, CHORD_FIELDS)
 
         start_meas = df["start_meas"].to_numpy()
         end_meas = df["end_meas"].to_numpy()

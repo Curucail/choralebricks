@@ -34,15 +34,14 @@ def test_chords():
     assert c.is_nc() == True
 
 
-@pytest.mark.parametrize("delimiter", [";", ","])
-def test_chord_sequence_from_csv_accepts_dataset_delimiters(delimiter):
-    tmp_dir = Path(".tmp") / f"test_chords_{ord(delimiter)}"
+def test_chord_sequence_from_csv_reads_semicolon():
+    tmp_dir = Path(".tmp") / "test_chords_semicolon"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     path = tmp_dir / "chords.csv"
     path.write_text(
-        f"start_meas{delimiter}end_meas{delimiter}chord\n"
-        f"0.000{delimiter}1.000{delimiter}C:maj\n"
-        f"1.000{delimiter}2.000{delimiter}G:maj\n",
+        "start_meas;end_meas;chord\n"
+        "0.000;1.000;C:maj\n"
+        "1.000;2.000;G:maj\n",
         encoding="utf-8",
     )
 
@@ -50,5 +49,44 @@ def test_chord_sequence_from_csv_accepts_dataset_delimiters(delimiter):
         sequence = ChordSequence.from_csv(path)
         assert sequence.get_chord_at(0.5).root_str == "C"
         assert sequence.get_chord_at(1.5).root_str == "G"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_chord_sequence_from_csv_rejects_comma_delimited():
+    """Only semicolon-delimited CSVs are accepted (no delimiter fallback)."""
+    from choralebricks.utils import SchemaValidationError
+
+    tmp_dir = Path(".tmp") / "test_chords_comma"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    path = tmp_dir / "chords.csv"
+    path.write_text(
+        "start_meas,end_meas,chord\n"
+        "0.000,1.000,C:maj\n",
+        encoding="utf-8",
+    )
+
+    try:
+        with pytest.raises(SchemaValidationError):
+            ChordSequence.from_csv(path)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_chord_sequence_from_csv_rejects_bad_schema():
+    from choralebricks.utils import SchemaValidationError
+
+    tmp_dir = Path(".tmp") / "test_chords_bad_schema"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    path = tmp_dir / "chords.csv"
+    path.write_text(
+        "start;ende;label\n"
+        "0.000;1.000;C:maj\n",
+        encoding="utf-8",
+    )
+
+    try:
+        with pytest.raises(SchemaValidationError):
+            ChordSequence.from_csv(path)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 
 from choralebricks.generators import tracks
-from choralebricks.utils import read_notes, read_sheet_music_csv, voice_to_name
+from choralebricks.utils import read_notes, read_sheet_music_csv
 
 
 logging.basicConfig(
@@ -30,9 +30,8 @@ def main():
             cur_notes = read_notes(cur_track.path_notes)
             cur_notes = cur_notes.sort_values("start")
 
-            # filter sheet music to voice
-            cur_voice_name = voice_to_name(cur_track.voice)
-            cur_sheet_music = cur_sheet_music[cur_sheet_music["part"] == cur_voice_name]
+            # filter sheet music to part
+            cur_sheet_music = cur_sheet_music[cur_sheet_music["part"] == cur_track.part]
 
             # Check if the number of note events is equal
             try:
