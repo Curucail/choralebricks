@@ -17,6 +17,7 @@ from choralebricks.dataset import SongDB, EnsemblePermutations
 from choralebricks.constants import (
     Instrument, Voices, VOICE_COLORS, VOICE_STRINGS, VOICE_STRINGS_SHORT
 )
+from choralebricks.format_spec_csv import SCORE_PART_ORDER
 from choralebricks.utils import voice_to_name, read_notes
 from choralebricks.generators import tracks
 
@@ -149,8 +150,12 @@ def print_tables(df_songs, df_tracks, df_performers=None):
 
 def figure_tracks_per_voice_instrument(df_tracks):
     # Figure: Tracks per Instrument and Part
-    grouped = df_tracks.groupby(["part", "instrument"]).size()
-    grouped = grouped.reset_index().sort_values(by=["part", 0], ascending=True)
+    grouped = df_tracks.groupby(["part", "instrument"]).size().reset_index()
+    # `part` is a string since v1.1, so sort it by SATB order instead of alphabetically
+    grouped["part"] = pd.Categorical(
+        grouped["part"], categories=list(SCORE_PART_ORDER), ordered=True
+    )
+    grouped = grouped.sort_values(by=["part", 0], ascending=True)
     grouped = grouped.set_index(["part", "instrument"])
 
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -222,6 +227,7 @@ def figure_pitch_hist_SATB():
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 6),sharex=True, sharey=True)
     axes_flat = axes.ravel()
+    count_axes = []
 
     for cur_idx, cur_voice in enumerate(Voices):
         cur_df = pd.DataFrame(notes[cur_voice], columns=["midi_pitch"])
@@ -239,6 +245,7 @@ def figure_pitch_hist_SATB():
 
         # add for the count
         ax_count = axes_flat[cur_idx].twinx()
+        count_axes.append(ax_count)
         sns.histplot(
             cur_df['midi_pitch'],
             bins=20,
@@ -259,7 +266,6 @@ def figure_pitch_hist_SATB():
 
         sns.despine(right=False)
         axes_flat[cur_idx].set_xlim((20, 90))
-        ax_count.set_ylim(bottom=0)
         ax_count.set_ylabel("#Note Events")
         axes_flat[cur_idx].set_title((
                 f"{VOICE_STRINGS[cur_voice]}: "
@@ -269,6 +275,12 @@ def figure_pitch_hist_SATB():
             ),
             fontsize=12)
         axes_flat[cur_idx].set_xlabel("MIDI Pitch")
+
+    # `sharey` does not propagate to twinx() axes, so equalize them by hand to
+    # keep the note counts comparable across the four parts
+    max_count = max(cur_ax.get_ylim()[1] for cur_ax in count_axes)
+    for cur_ax in count_axes:
+        cur_ax.set_ylim(0, max_count)
 
     plt.tight_layout()
     plt.savefig('pitch_hist_SATB.pdf')
